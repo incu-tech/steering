@@ -1,0 +1,66 @@
+{
+  "name": "@incu/steering",
+  "version": "0.2.2",
+  "description": "Package manager for AI agent steering files — npx steering.sh add owner/repo",
+  "type": "module",
+  "bin": {
+    "steering": "./bin/cli.mjs",
+    "steering-convert": "./bin/convert.mjs"
+  },
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./cli": "./dist/cli.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "obuild",
+    "prepublishOnly": "pnpm build",
+    "dev": "node src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
+  },
+  "keywords": [
+    "cli",
+    "steering",
+    "ai-agents",
+    "agent-context",
+    "kiro",
+    "cursor",
+    "claude-code",
+    "copilot",
+    "windsurf"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "author": "Incu",
+  "packageManager": "pnpm@11.7.0",
+  "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "obuild": "^0.4.22",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

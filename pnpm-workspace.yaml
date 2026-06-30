@@ -1,0 +1,4 @@
+# esbuild is a transitive dependency of obuild's toolchain; obuild bundles via
+# rolldown and does not need esbuild's native binary, so we skip its build script.
+allowBuilds:
+  esbuild: false
