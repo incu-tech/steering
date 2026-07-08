@@ -10,7 +10,7 @@ import { runInit } from './init.ts';
 import { runCheck, runUpdate } from './update.ts';
 import { runConvert } from './convert-command.ts';
 import { flushTelemetry, setVersion } from './telemetry.ts';
-import { c } from './ui.ts';
+import { banner, disableBanner, c } from './ui.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,8 +26,8 @@ function getVersion(): string {
 const VERSION = getVersion();
 
 function showHelp(): void {
-  console.log(`
-${c.bold('steering')} — package manager for AI agent steering files
+  banner(VERSION, true);
+  console.log(`${c.bold('steering')} — package manager for AI agent steering files
 
 ${c.bold('Usage:')} steering <command> [options]
 
@@ -76,8 +76,12 @@ ${c.bold('Sources:')}
   owner/repo@name                    a single steering file
   ./local-path                       local directory (development)
 
+${c.bold('Global options:')}
+  --no-banner       Hide the wordmark banner (also: STEERING_NO_BANNER, NO_COLOR)
+
 ${c.bold('Environment:')}
   GITHUB_TOKEN / GH_TOKEN            auth for private repos & higher rate limits
+  STEERING_NO_BANNER / NO_COLOR      hide the wordmark banner
   DISABLE_TELEMETRY / DO_NOT_TRACK   (telemetry is disabled in this build)
 
 ${c.bold('Examples:')}
@@ -91,9 +95,16 @@ ${c.bold('Examples:')}
 
 async function main(): Promise<void> {
   setVersion(VERSION);
-  const args = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  // `--no-banner` can appear anywhere; strip it so it doesn't shift the command/args.
+  if (rawArgs.includes('--no-banner')) disableBanner();
+  const args = rawArgs.filter((a) => a !== '--no-banner');
   const command = args[0];
   const rest = args.slice(1);
+
+  // Wordmark at the start of actionable commands (help renders its own; --version stays bare).
+  const bare = command === undefined || command === '--version' || command === '-v' || command === '--help' || command === '-h';
+  if (!bare) banner(VERSION);
 
   switch (command) {
     case 'add':
