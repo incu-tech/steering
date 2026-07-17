@@ -214,3 +214,51 @@ describe('runAdd (multi-target)', () => {
     expect(Object.keys(lock.steering)).toEqual(['security']);
   });
 });
+
+describe('runAdd (empty workspace, no agent detected)', () => {
+  let home: string;
+  let project: string;
+  const origCwd = process.cwd();
+  const origHome = process.env.HOME;
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), 'steering-scope-'));
+    project = join(home, 'project');
+    await mkdir(project, { recursive: true });
+    process.chdir(project);
+    // Redirect global installs into the sandbox so a misroute can't touch ~/.
+    process.env.HOME = home;
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(async () => {
+    process.chdir(origCwd);
+    process.env.HOME = origHome;
+    vi.restoreAllMocks();
+    await rm(home, { recursive: true, force: true });
+  });
+
+  it('non-interactive install stays in the workspace instead of going global', async () => {
+    await runAdd(FIXTURE, opts({ all: true, yes: true }));
+
+    // Falls back to Kiro in the cwd, with a workspace lock.
+    const installed = (await readdir(join(project, '.kiro', 'steering'))).sort();
+    expect(installed).toEqual(['java-conventions.md', 'security.md']);
+    expect(await exists(join(project, 'steering-lock.json'))).toBe(true);
+
+    // Nothing escaped to the (sandboxed) home dir.
+    expect(await exists(join(home, '.kiro'))).toBe(false);
+    expect(await exists(join(home, '.steering'))).toBe(false);
+  });
+
+  it('--global still installs globally without prompting', async () => {
+    await runAdd(FIXTURE, opts({ all: true, yes: true, global: true }));
+
+    expect((await readdir(join(home, '.kiro', 'steering'))).sort()).toEqual([
+      'java-conventions.md',
+      'security.md',
+    ]);
+    expect(await exists(join(home, '.steering', 'steering-lock.json'))).toBe(true);
+    expect(await exists(join(project, '.kiro'))).toBe(false);
+  });
+});
