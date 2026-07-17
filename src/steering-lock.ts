@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
-import { dirname } from 'path';
-import { GLOBAL_LOCK_FILE } from './constants.ts';
+import { homedir } from 'os';
+import { dirname, join } from 'path';
 import { upsertByFormat, removeByName, findEntry } from './lock-keys.ts';
 import type { AgentFormat } from './convert/types.ts';
 
@@ -40,8 +40,10 @@ export interface SteeringLockFile {
   steering: Record<string, SteeringLockEntry>;
 }
 
+// Computed per call (not at module load) so it honors HOME changes — e.g.
+// sandboxed tests that redirect the home dir.
 export function getGlobalLockPath(): string {
-  return GLOBAL_LOCK_FILE;
+  return join(homedir(), '.steering', 'steering-lock.json');
 }
 
 function createEmpty(): SteeringLockFile {

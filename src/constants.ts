@@ -14,13 +14,6 @@ export const KIRO_WORKSPACE_MARKER = '.kiro';
 /** Project-scoped lock file, committed to the repo. */
 export const LOCAL_LOCK_FILE = 'steering-lock.json';
 
-/**
- * Global lock file: the tool's own registry of globally-installed steering
- * files. Lives in a neutral `~/.steering/` dir (not under any single agent's
- * home) since installs can target multiple formats.
- */
-export const GLOBAL_LOCK_FILE = join(homedir(), '.steering', 'steering-lock.json');
-
 /** Package manifest filename inside a steering source repo. */
 export const MANIFEST_FILE = 'steering.json';
 

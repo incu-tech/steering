@@ -178,12 +178,13 @@ async function resolveTargetFormats(
   return present;
 }
 
-/** Workspace install unless --global or the workspace has no agent dirs at all. */
-function resolveScope(
+/** Workspace install unless --global; never silently escalates to global. */
+async function resolveScope(
   options: AddOptions,
   cwd: string,
-  present: AgentFormat[]
-): { global: boolean } {
+  present: AgentFormat[],
+  targets: AgentFormat[]
+): Promise<{ global: boolean }> {
   if (options.global) return { global: true };
   // Explicitly naming targets (--agent / --all-formats) signals workspace intent
   // even before the agent's dir exists — we'll create it.
@@ -193,13 +194,32 @@ function resolveScope(
     present.length > 0 ||
     existsSync(join(cwd, '.kiro')) ||
     existsSync(join(cwd, 'AGENTS.md'));
-  if (!workspaceLike) {
-    warn(
-      `No agent directory found in this workspace. Installing globally instead. ` +
-        `Use ${c.cyan('--global')} to suppress this warning.`
-    );
-    return { global: true };
+  if (workspaceLike) return { global: false };
+
+  // No agent dirs here. A global install touches every workspace on the
+  // machine, so it must be an explicit choice: ask when we can, and fall back
+  // to the workspace (never global) when we can't.
+  const workspaceDir = relative(cwd, getTargetDir(false, cwd, targets[0])) || '.';
+  const globalDir = getTargetDir(true, cwd, targets[0]);
+  if (!options.yes && isInteractive()) {
+    const choice = await p.select({
+      message: 'No agent detected in this workspace. Where should the files be installed?',
+      options: [
+        { value: 'workspace', label: `This workspace (${workspaceDir}/)` },
+        { value: 'global', label: `Globally, for every workspace (${globalDir}/)` },
+      ],
+      initialValue: 'workspace',
+    });
+    if (p.isCancel(choice)) {
+      info('Cancelled.');
+      process.exit(0);
+    }
+    return { global: choice === 'global' };
   }
+  info(
+    `No agent detected in this workspace — installing to ${c.cyan(`${workspaceDir}/`)}. ` +
+      `Use ${c.cyan('--global')} for a machine-wide install.`
+  );
   return { global: false };
 }
 
@@ -341,7 +361,7 @@ export async function runAdd(source: string | undefined, options: AddOptions): P
   const cwd = process.cwd();
   const present = detectPresentFormats(cwd);
   const targets = await resolveTargetFormats(options, present);
-  const { global } = resolveScope(options, cwd, present);
+  const { global } = await resolveScope(options, cwd, present, targets);
 
   const scopeOf = (targetFormat: AgentFormat): string => {
     const targetDir = getTargetDir(global, cwd, targetFormat);
