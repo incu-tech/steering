@@ -1,6 +1,6 @@
 {
   "name": "steering.sh",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "npx alias for @incu/steering — package manager for AI agent steering files",
   "type": "module",
   "bin": {
