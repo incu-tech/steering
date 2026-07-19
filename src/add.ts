@@ -8,7 +8,7 @@ import { fileExists, getInstalledPath, getTargetDir, writeRuleFile } from './ins
 import { addToGlobalLock } from './steering-lock.ts';
 import { addToLocalLock } from './local-lock.ts';
 import { AGENT_FORMATS, type AgentFormat } from './convert/types.ts';
-import { FORMATS, getFormatSpec } from './convert/formats.ts';
+import { FORMATS, getFormatSpec, resolveFormatName, FORMAT_ALIASES } from './convert/formats.ts';
 import { renderRules, type RenderedDoc } from './convert/convert.ts';
 import { getOutputBasename } from './convert/output-paths.ts';
 import { c, fail, info, isInteractive, success, warn } from './ui.ts';
@@ -32,8 +32,15 @@ export interface AddOptions {
 }
 
 function parseFormatFlag(value: string | undefined, flag: string): AgentFormat {
-  if (value && (AGENT_FORMATS as string[]).includes(value)) return value as AgentFormat;
-  fail(`Invalid ${flag} format "${value ?? ''}". Valid: ${AGENT_FORMATS.join(', ')}`);
+  const resolved = value ? resolveFormatName(value) : undefined;
+  if (resolved) {
+    if (value !== resolved) info(c.dim(`${flag} ${value} → ${resolved}`));
+    return resolved;
+  }
+  fail(
+    `Invalid ${flag} format "${value ?? ''}". Valid: ${AGENT_FORMATS.join(', ')} ` +
+      `(also accepted: ${Object.keys(FORMAT_ALIASES).join(', ')})`
+  );
 }
 
 export function parseAddOptions(args: string[]): {

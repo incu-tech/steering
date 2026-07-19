@@ -2,7 +2,7 @@ import { mkdir, writeFile, readFile } from 'fs/promises';
 import { dirname, join, resolve, basename } from 'path';
 import * as p from '@clack/prompts';
 import { AGENT_FORMATS, type AgentFormat, type ConversionWarning } from './convert/types.ts';
-import { getFormatSpec } from './convert/formats.ts';
+import { getFormatSpec, resolveFormatName, FORMAT_ALIASES } from './convert/formats.ts';
 import { getFormatDir, getOutputBasename } from './convert/output-paths.ts';
 import { parseRules, ruleNameFromPath, FormatDetectionError } from './convert/parse/index.ts';
 import { detectFormat } from './convert/detect.ts';
@@ -20,8 +20,15 @@ export interface ConvertCliOptions {
 }
 
 function parseAgentFormat(value: string | undefined, flag: string): AgentFormat {
-  if (value && (AGENT_FORMATS as string[]).includes(value)) return value as AgentFormat;
-  fail(`Invalid ${flag} format "${value ?? ''}". Valid: ${AGENT_FORMATS.join(', ')}`);
+  const resolved = value ? resolveFormatName(value) : undefined;
+  if (resolved) {
+    if (value !== resolved) info(c.dim(`${flag} ${value} → ${resolved}`));
+    return resolved;
+  }
+  fail(
+    `Invalid ${flag} format "${value ?? ''}". Valid: ${AGENT_FORMATS.join(', ')} ` +
+      `(also accepted: ${Object.keys(FORMAT_ALIASES).join(', ')})`
+  );
 }
 
 export function parseConvertOptions(args: string[]): {
