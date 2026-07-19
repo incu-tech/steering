@@ -1,6 +1,6 @@
 # CLAUDE.md — `steering` CLI
 
-Guía breve para trabajar en este repo. El diseño detallado vive en `docs/prds/`.
+Guía breve para trabajar en este repo.
 
 ## Qué es
 
@@ -31,7 +31,6 @@ target(s) del workspace y cae a Kiro.
 - `bin/` — entrypoints: `steering` → `cli.mjs`, `steering-convert` → `convert.mjs`.
 - `aliases/` — paquetes alias `steering.sh` y `steering-cli`.
 - `tests/` y `src/**/*.test.ts` — Vitest.
-- `docs/prds/` — PRDs (`000-initial` = diseño original).
 
 ## Stack
 
