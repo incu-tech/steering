@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Versions apply to all three published packages (`@incu/steering`, `steering-cli`,
 `steering.sh`), which are released together.
 
+## [0.4.0] — 2026-07-21
+
+### Added
+
+- **skills-CLI agent-name aliases.** `--agent`, `--to`, and `--from` now accept the agent
+  names used by the `skills` CLI, mapped to steering's canonical format ids:
+  `github-copilot` → `copilot`, `codex` and `universal` → `agents-md`, `kiro-cli` → `kiro`.
+  Both tools now accept the same values. Canonical ids are unchanged and remain what gets
+  persisted in lock files, so existing installs are unaffected.
+
 ## [0.3.0] — 2026-07-21
 
 ### Added
@@ -44,4 +54,5 @@ Versions apply to all three published packages (`@incu/steering`, `steering-cli`
 Releases up to and including `v0.2.3` predate this changelog; see the git history and the
 `vX.Y.Z` tags for details.
 
+[0.4.0]: https://github.com/incu-tech/steering/releases/tag/v0.4.0
 [0.3.0]: https://github.com/incu-tech/steering/releases/tag/v0.3.0
