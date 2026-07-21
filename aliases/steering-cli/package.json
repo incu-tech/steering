@@ -1,6 +1,6 @@
 {
   "name": "steering-cli",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "npx alias for @incu/steering — package manager for AI agent steering files",
   "type": "module",
   "bin": {
@@ -25,6 +25,6 @@
   "license": "MIT",
   "author": "Incu",
   "dependencies": {
-    "@incu/steering": "^0.2.1"
+    "@incu/steering": "^0.3.0"
   }
 }

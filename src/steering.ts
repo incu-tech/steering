@@ -6,6 +6,7 @@ import { validateKiroFrontmatter } from './frontmatter.ts';
 import { sanitizeSubpath } from './source-parser.ts';
 import { MANIFEST_FILE, STEERING_SUBDIR } from './constants.ts';
 import {
+  computeGitBlobSha,
   fetchFileContent,
   findMarkdownPaths,
   getBlobSha,
@@ -173,6 +174,20 @@ export function localFileSource(rootDir: string): FileSource {
     hash(_repoPath, content) {
       return sha256(content);
     },
+  };
+}
+
+/**
+ * A cloned git working tree on disk. Reads files like a local directory, but the
+ * change-detection hash is the git blob SHA (matching what the GitHub tree
+ * yields) so `check`/`update` stay consistent across the API and clone paths.
+ */
+export function gitFileSource(rootDir: string): FileSource {
+  const local = localFileSource(rootDir);
+  return {
+    read: local.read,
+    listMarkdown: local.listMarkdown,
+    hash: (_repoPath, content) => computeGitBlobSha(content),
   };
 }
 
