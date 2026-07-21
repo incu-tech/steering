@@ -1,13 +1,16 @@
 import { readFile } from 'fs/promises';
+import { join } from 'path';
 import { createHash } from 'crypto';
 import * as p from '@clack/prompts';
 import {
+  computeGitBlobSha,
   fetchFileContent,
   fetchRepoTree,
   getBlobSha,
   getGitHubToken,
   type RepoTree,
 } from './blob.ts';
+import { cloneRepo, cleanupClone, isGitUrl, type ClonedRepo } from './git.ts';
 import { parseOwnerRepo } from './source-parser.ts';
 import { getInstalledPath, writeRuleFile } from './installer.ts';
 import { getAllGlobalLocked, addToGlobalLock } from './steering-lock.ts';
@@ -29,7 +32,7 @@ interface CheckItem {
   name: string;
   global: boolean;
   source: string;
-  sourceType: 'github' | 'local';
+  sourceType: 'github' | 'local' | 'git';
   steeringFilePath: string;
   ref?: string;
   sourceFormat: AgentFormat;
@@ -64,7 +67,10 @@ function parseOptions(args: string[]): UpdateOptions {
   return options;
 }
 
-function inferSourceType(source: string): 'github' | 'local' {
+function inferSourceType(source: string): 'github' | 'local' | 'git' {
+  // The hashless workspace lock records no source type. A git remote stores its
+  // clone URL as `source`; "owner/repo" is GitHub shorthand; anything else is a path.
+  if (isGitUrl(source)) return 'git';
   return parseOwnerRepo(source) ? 'github' : 'local';
 }
 
@@ -92,7 +98,8 @@ async function collectItems(options: UpdateOptions, cwd: string): Promise<CheckI
         name: entry.name,
         global: true,
         source: entry.source,
-        sourceType: (entry.sourceType as 'github' | 'local') || inferSourceType(entry.source),
+        sourceType:
+          (entry.sourceType as 'github' | 'local' | 'git') || inferSourceType(entry.source),
         steeringFilePath: entry.steeringFilePath,
         ref: entry.ref,
         sourceFormat: entry.sourceFormat ?? 'kiro',
@@ -132,11 +139,23 @@ async function readInstalled(item: CheckItem, cwd: string): Promise<string | nul
   }
 }
 
-/** Fetch the raw source content for an item. */
-async function fetchSource(item: CheckItem, tree: RepoTree | null): Promise<string | null> {
+/** Fetch the raw source content for an item. `cloneDir` is required for git items. */
+async function fetchSource(
+  item: CheckItem,
+  tree: RepoTree | null,
+  cloneDir?: string
+): Promise<string | null> {
   if (item.sourceType === 'github') {
     if (!tree) return null;
     return fetchFileContent(item.source, item.steeringFilePath, tree.branch, getGitHubToken());
+  }
+  if (item.sourceType === 'git') {
+    if (!cloneDir) return null;
+    try {
+      return await readFile(join(cloneDir, item.steeringFilePath), 'utf-8');
+    } catch {
+      return null;
+    }
   }
   try {
     return await readFile(`${item.source}/${item.steeringFilePath}`, 'utf-8');
@@ -145,72 +164,108 @@ async function fetchSource(item: CheckItem, tree: RepoTree | null): Promise<stri
   }
 }
 
+/**
+ * Source-side change-detection hash for the global-lock short-circuit. GitHub
+ * reads the blob SHA from the tree (no download); git/local hash the fetched
+ * content (git blob SHA vs sha256), matching how each was installed.
+ */
+async function remoteHashFor(
+  item: CheckItem,
+  tree: RepoTree | null,
+  cloneDir?: string
+): Promise<string | null> {
+  if (item.sourceType === 'github') return getBlobSha(tree!, item.steeringFilePath);
+  const content = await fetchSource(item, tree, cloneDir);
+  if (content === null) return null;
+  return item.sourceType === 'git' ? computeGitBlobSha(content) : sha256(content);
+}
+
 /** Resolve status + converted content for each item, caching repo trees. */
 async function checkItems(items: CheckItem[], cwd: string): Promise<CheckResult[]> {
   const treeCache = new Map<string, RepoTree | null>();
+  // Clone once per (source, ref) and reuse across all files from that source;
+  // cleaned up in the finally below (OQ5).
+  const cloneCache = new Map<string, ClonedRepo | null>();
   const results: CheckResult[] = [];
 
-  for (const item of items) {
-    let tree: RepoTree | null = null;
-    if (item.sourceType === 'github') {
-      const cacheKey = `${item.source}@${item.ref ?? ''}`;
-      tree = treeCache.get(cacheKey) ?? null;
-      if (!treeCache.has(cacheKey)) {
-        tree = await fetchRepoTree(item.source, item.ref, getGitHubToken);
-        treeCache.set(cacheKey, tree);
+  try {
+    for (const item of items) {
+      let tree: RepoTree | null = null;
+      let cloneDir: string | undefined;
+
+      if (item.sourceType === 'github') {
+        const cacheKey = `${item.source}@${item.ref ?? ''}`;
+        if (!treeCache.has(cacheKey)) {
+          treeCache.set(cacheKey, await fetchRepoTree(item.source, item.ref, getGitHubToken));
+        }
+        tree = treeCache.get(cacheKey) ?? null;
+        if (!tree) {
+          results.push({ ...item, status: 'error' });
+          continue;
+        }
+      } else if (item.sourceType === 'git') {
+        const cacheKey = `${item.source}@${item.ref ?? ''}`;
+        if (!cloneCache.has(cacheKey)) {
+          cloneCache.set(cacheKey, await cloneRepo(item.source, item.ref).catch(() => null));
+        }
+        const cloned = cloneCache.get(cacheKey) ?? null;
+        if (!cloned) {
+          results.push({ ...item, status: 'error' });
+          continue;
+        }
+        cloneDir = cloned.dir;
       }
-      if (!tree) {
+
+      // Global lock stores the source hash → cheap short-circuit (no content
+      // download / conversion) when the source is unchanged.
+      if (item.global && item.storedHash) {
+        const remoteHash = await remoteHashFor(item, tree, cloneDir);
+        if (!remoteHash) {
+          results.push({ ...item, status: 'error' });
+          continue;
+        }
+        results.push({
+          ...item,
+          ref: tree?.branch ?? item.ref,
+          remoteHash,
+          status: remoteHash === item.storedHash ? 'up-to-date' : 'update-available',
+        });
+        continue;
+      }
+
+      // Workspace (hashless): download source, convert, diff against installed.
+      const installed = await readInstalled(item, cwd);
+      if (installed === null) {
+        results.push({ ...item, status: 'not-installed' });
+        continue;
+      }
+      const sourceContent = await fetchSource(item, tree, cloneDir);
+      if (sourceContent === null) {
         results.push({ ...item, status: 'error' });
         continue;
       }
-    }
-
-    // Global lock stores the source hash → cheap short-circuit (no content
-    // download / conversion) when the source is unchanged.
-    if (item.global && item.storedHash) {
-      const remoteHash =
-        item.sourceType === 'github'
-          ? getBlobSha(tree!, item.steeringFilePath)
-          : await fetchSource(item, tree).then((c) => (c === null ? null : sha256(c)));
-      if (!remoteHash) {
+      const newContent = reconstructContent(sourceContent, item);
+      if (newContent === null) {
         results.push({ ...item, status: 'error' });
         continue;
       }
       results.push({
         ...item,
         ref: tree?.branch ?? item.ref,
-        remoteHash,
-        status: remoteHash === item.storedHash ? 'up-to-date' : 'update-available',
+        newContent,
+        remoteHash:
+          item.sourceType === 'github'
+            ? (getBlobSha(tree!, item.steeringFilePath) ?? undefined)
+            : item.sourceType === 'git'
+              ? computeGitBlobSha(sourceContent)
+              : sha256(sourceContent),
+        status: newContent === installed ? 'up-to-date' : 'update-available',
       });
-      continue;
     }
-
-    // Workspace (hashless): download source, convert, diff against installed.
-    const installed = await readInstalled(item, cwd);
-    if (installed === null) {
-      results.push({ ...item, status: 'not-installed' });
-      continue;
+  } finally {
+    for (const cloned of cloneCache.values()) {
+      if (cloned) await cleanupClone(cloned.dir);
     }
-    const sourceContent = await fetchSource(item, tree);
-    if (sourceContent === null) {
-      results.push({ ...item, status: 'error' });
-      continue;
-    }
-    const newContent = reconstructContent(sourceContent, item);
-    if (newContent === null) {
-      results.push({ ...item, status: 'error' });
-      continue;
-    }
-    results.push({
-      ...item,
-      ref: tree?.branch ?? item.ref,
-      newContent,
-      remoteHash:
-        item.sourceType === 'github'
-          ? (getBlobSha(tree!, item.steeringFilePath) ?? undefined)
-          : sha256(sourceContent),
-      status: newContent === installed ? 'up-to-date' : 'update-available',
-    });
   }
 
   return results;
@@ -302,8 +357,11 @@ export async function runUpdate(args: string[]): Promise<void> {
     let content = r.newContent;
     if (content === undefined) {
       let tree: RepoTree | null = null;
+      let cloned: ClonedRepo | null = null;
       if (r.sourceType === 'github') tree = await fetchRepoTree(r.source, r.ref, getGitHubToken);
-      const sourceContent = await fetchSource(r, tree);
+      else if (r.sourceType === 'git') cloned = await cloneRepo(r.source, r.ref).catch(() => null);
+      const sourceContent = await fetchSource(r, tree, cloned?.dir);
+      if (cloned) await cleanupClone(cloned.dir);
       if (sourceContent === null) {
         warn(`Could not download ${r.name}; skipping.`);
         continue;

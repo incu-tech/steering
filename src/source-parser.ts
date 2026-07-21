@@ -181,6 +181,64 @@ function appendFragmentRef(input: string, ref?: string, steeringFilter?: string)
   return `${input}#${ref}${steeringFilter ? `@${steeringFilter}` : ''}`;
 }
 
+/**
+ * Parse an SSH / scp-style git remote *before* the GitHub-shorthand matchers, so a
+ * colon-less `git@host/group/repo` (or a GitLab web path pasted with a `git@`
+ * prefix) is cloned over SSH instead of being mistaken for `owner/repo` on GitHub.
+ * Handles `git@host:path`, `git@host/path`, and `ssh://git@host[:port]/path`, and
+ * peels off a GitLab `/-/tree/<ref>/<subpath>` (or `/tree/<ref>/<subpath>`) suffix.
+ * Returns a cloneable SSH URL — the resolver installs it via `git clone`.
+ */
+function parseGitAtSource(
+  input: string,
+  fragmentRef?: string,
+  fragmentFilter?: string
+): ParsedSource | null {
+  let userHost: string;
+  let pathPart: string;
+  let scheme: 'ssh' | 'scp';
+
+  const sshUrl = input.match(/^ssh:\/\/([^/]+)\/(.+)$/);
+  if (sshUrl) {
+    userHost = sshUrl[1]!;
+    pathPart = sshUrl[2]!;
+    scheme = 'ssh';
+  } else {
+    // scp-style: `git@host:path` (canonical) or `git@host/path` (web-path paste).
+    const scp = input.match(/^(git@[^/:]+)[:/](.+)$/);
+    if (!scp) return null;
+    userHost = scp[1]!;
+    pathPart = scp[2]!;
+    scheme = 'scp';
+  }
+
+  let repoPath = pathPart;
+  let ref = fragmentRef;
+  let subpath: string | undefined;
+  const treeMatch =
+    pathPart.match(/^(.+?)\/-\/tree\/([^/]+)(?:\/(.+))?$/) ||
+    pathPart.match(/^(.+?)\/tree\/([^/]+)(?:\/(.+))?$/);
+  if (treeMatch) {
+    repoPath = treeMatch[1]!;
+    ref = treeMatch[2] || fragmentRef;
+    subpath = treeMatch[3];
+  }
+
+  repoPath = repoPath.replace(/\/+$/, '').replace(/\.git$/, '');
+  if (!repoPath) return null;
+
+  const url =
+    scheme === 'ssh' ? `ssh://${userHost}/${repoPath}.git` : `${userHost}:${repoPath}.git`;
+
+  return {
+    type: /gitlab/i.test(userHost) ? 'gitlab' : 'git',
+    url,
+    ...(ref ? { ref } : {}),
+    ...(subpath ? { subpath: sanitizeSubpath(subpath) } : {}),
+    ...(fragmentFilter ? { steeringFilter: fragmentFilter } : {}),
+  };
+}
+
 export function parseSource(input: string): ParsedSource {
   if (isLocalPath(input)) {
     const resolvedPath = resolve(input);
@@ -193,6 +251,10 @@ export function parseSource(input: string): ParsedSource {
     steeringFilter: fragmentFilter,
   } = parseFragmentRef(input);
   input = inputWithoutFragment;
+
+  // SSH / scp remotes are unambiguous and must win over the GitHub shorthand.
+  const sshLike = parseGitAtSource(input, fragmentRef, fragmentFilter);
+  if (sshLike) return sshLike;
 
   const githubPrefixMatch = input.match(/^github:(.+)$/);
   if (githubPrefixMatch) {

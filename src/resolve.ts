@@ -1,8 +1,10 @@
 import { stat } from 'fs/promises';
 import { getGitHubToken, fetchRepoTree } from './blob.ts';
+import { cloneRepo, cleanupClone, GitCloneError } from './git.ts';
 import {
   discoverSteering,
   filterByName,
+  gitFileSource,
   gitHubFileSource,
   localFileSource,
 } from './steering.ts';
@@ -19,13 +21,13 @@ export class ResolveError extends Error {
 }
 
 export interface ResolvedSource {
-  /** Normalized label for lock files / display ("owner/repo" or local path). */
+  /** Normalized label for lock files / display ("owner/repo", clone URL, or path). */
   sourceId: string;
-  /** "github" | "local". */
-  sourceType: 'github' | 'local';
+  /** "github" | "local" | "git". */
+  sourceType: 'github' | 'local' | 'git';
   /** Original URL/path used to install. */
   sourceUrl: string;
-  /** Branch the files were read from (github only). */
+  /** Branch the files were read from (github/git only). */
   ref?: string;
   files: SteeringFile[];
 }
@@ -33,9 +35,9 @@ export interface ResolvedSource {
 /**
  * Resolve a parsed source into installable steering files.
  *
- * v1 supports GitHub and local paths. GitLab/raw-git/well-known parse cleanly
- * but are rejected here with a clear message — `check`/`update` are defined
- * around GitHub tree SHAs, so other hosts need a model the PRD doesn't specify.
+ * GitHub reads through the API; local reads the filesystem; any other git remote
+ * (GitLab, Bitbucket, self-hosted, SSH/raw `.git`) is shallow-cloned. Only
+ * `well-known` (a non-git HTTP URL) is left unsupported.
  */
 export async function resolveSource(
   parsed: ParsedSource,
@@ -47,9 +49,13 @@ export async function resolveSource(
   if (parsed.type === 'github') {
     return resolveGitHub(parsed, from);
   }
+  if (parsed.type === 'git' || parsed.type === 'gitlab') {
+    return resolveGit(parsed, from);
+  }
   throw new ResolveError(
-    `${parsed.type} sources are not supported yet — steering v1 supports GitHub and local paths.\n` +
-      `  Try:  npx steering add owner/repo   or   npx steering add ./local-path`
+    `${parsed.type} sources are not supported — steering installs from GitHub, any git ` +
+      `remote, or a local path.\n` +
+      `  Try:  npx steering add owner/repo   or   npx steering add https://git.example.com/team/repo.git   or   npx steering add ./local-path`
   );
 }
 
@@ -77,6 +83,53 @@ async function resolveLocal(parsed: ParsedSource, from?: AgentFormat): Promise<R
   }
 
   return { sourceId: root, sourceType: 'local', sourceUrl: root, files };
+}
+
+/**
+ * Resolve any git remote by shallow-cloning it into a temp dir, then discovering
+ * files with the same precedence as a local source. The clone is deleted once
+ * content is in memory. `sourceId` is the clone URL so the hashless workspace
+ * lock can re-clone for updates; auth is delegated to the user's git setup.
+ */
+async function resolveGit(parsed: ParsedSource, from?: AgentFormat): Promise<ResolvedSource> {
+  const url = parsed.url;
+
+  let cloned;
+  try {
+    cloned = await cloneRepo(url, parsed.ref);
+  } catch (err) {
+    if (err instanceof GitCloneError) {
+      throw new ResolveError(
+        `Could not clone ${url}.\n` +
+          `  Check the URL, your network, and that you have access. Generic git uses your ` +
+          `local git credentials (SSH agent or credential helper) — steering never prompts.`
+      );
+    }
+    throw err;
+  }
+
+  try {
+    const source = gitFileSource(cloned.dir);
+    let files = await discoverSteering(source, parsed.subpath, from);
+    if (parsed.steeringFilter) files = filterByName(files, parsed.steeringFilter);
+
+    if (files.length === 0) {
+      throw new ResolveError(
+        `No steering files found in ${url}${parsed.subpath ? ` (subpath: ${parsed.subpath})` : ''}.\n` +
+          `  Expected a steering.json manifest, a steering/ directory, or .md files.`
+      );
+    }
+
+    return {
+      sourceId: url,
+      sourceType: 'git',
+      sourceUrl: url,
+      ref: cloned.branch || parsed.ref,
+      files,
+    };
+  } finally {
+    await cleanupClone(cloned.dir);
+  }
 }
 
 async function resolveGitHub(parsed: ParsedSource, from?: AgentFormat): Promise<ResolvedSource> {

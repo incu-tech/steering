@@ -43,6 +43,40 @@ describe('parseSource', () => {
     expect(getOwnerRepo(s)).toBe('org/repo');
   });
 
+  it('parses a self-hosted .git HTTPS URL as generic git', () => {
+    const s = parseSource('https://git.example.com/team/repo.git');
+    expect(s.type).toBe('git');
+    expect(s.url).toBe('https://git.example.com/team/repo.git');
+  });
+
+  it('parses a non-GitHub SSH URL as generic git', () => {
+    const s = parseSource('git@bitbucket.org:team/repo.git');
+    expect(s.type).toBe('git');
+    expect(getOwnerRepo(s)).toBe('team/repo');
+  });
+
+  it('parses a colon-less SSH URL with a GitLab tree path (not GitHub)', () => {
+    const s = parseSource(
+      'git@git.interbanking.com.ar/ib/ia-specs/kiro-specs/-/tree/master/backup-config-inicial/.kiro/steering'
+    );
+    expect(s.type).toBe('git');
+    expect(s.url).toBe('git@git.interbanking.com.ar:ib/ia-specs/kiro-specs.git');
+    expect(s.ref).toBe('master');
+    expect(s.subpath).toBe('backup-config-inicial/.kiro/steering');
+  });
+
+  it('parses an ssh:// URL as generic git', () => {
+    const s = parseSource('ssh://git@host/group/repo.git');
+    expect(s.type).toBe('git');
+    expect(s.url).toBe('ssh://git@host/group/repo.git');
+  });
+
+  it('routes a gitlab.com SSH URL to the gitlab type', () => {
+    const s = parseSource('git@gitlab.com:team/repo.git');
+    expect(s.type).toBe('gitlab');
+    expect(s.url).toBe('git@gitlab.com:team/repo.git');
+  });
+
   it('rejects path traversal in subpaths', () => {
     expect(() => parseSource('https://github.com/o/r/tree/main/../../etc')).toThrow(/traversal/);
   });

@@ -59,8 +59,9 @@ export interface SteeringManifest {
 
 /**
  * A source string parsed into a structured shape.
- * Only `github` and `local` are installable in v1; `gitlab`/`git`/`well-known`
- * are parsed for clear error messaging but not yet supported.
+ * `github` and `local` read through the GitHub API / filesystem; `git` and
+ * `gitlab` are installable via a generic `git clone`. `well-known` (a non-git
+ * HTTP URL) is parsed for clear error messaging but not yet installable.
  */
 export interface ParsedSource {
   type: 'github' | 'gitlab' | 'git' | 'local' | 'well-known';

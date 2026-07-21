@@ -50,7 +50,7 @@ npx steering.sh init my-standards   # scaffold a new steering package
 
 | Command | Description |
 |---------|-------------|
-| `add <source>` | Install steering files from a GitHub repo or local path |
+| `add <source>` | Install steering files from a GitHub repo, any git remote, or a local path |
 | `list`, `ls` | List installed steering files |
 | `check` | Check for available updates (compares git blob SHAs) |
 | `update` | Re-download changed files (alias: `upgrade`) |
@@ -115,10 +115,16 @@ the CLI auto-detects the target(s) from the workspace and falls back to Kiro.
 | GitHub URL | `https://github.com/owner/repo` |
 | Subfolder | `https://github.com/org/monorepo/tree/main/packages/steering` |
 | Single file | `owner/repo@security` |
+| Any git remote (HTTPS) | `https://gitlab.example.com/team/steering.git` |
+| Any git remote (SSH) | `git@bitbucket.org:team/steering.git` |
 | Local path (dev) | `./my-steering` |
 
-> Currently **GitHub** and **local** sources are installable. GitLab / raw-git
-> URLs parse but are not installable yet (they're reported with a clear message).
+> **GitHub** repos are read through the GitHub API (a token is only needed for
+> private repos — `GITHUB_TOKEN` / `gh`). **Any other git remote** (GitLab,
+> Bitbucket, Azure DevOps, Gitea, self-hosted) is installed by shallow-cloning it,
+> using **your own git credentials** (SSH agent / credential helper) — no token
+> required. `check` / `update` work the same across all of them via the git blob
+> SHA. A `#ref` / subfolder work on any host.
 
 ## Steering packages
 

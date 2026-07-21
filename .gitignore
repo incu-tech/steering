@@ -7,3 +7,6 @@ dist
 docs/
 design.md
 LIMITATIONS.md
+
+# ways CLI cache only — .ways/state.json MUST stay tracked (resume-by-branch)
+.ways/cache/

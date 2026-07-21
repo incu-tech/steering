@@ -15,7 +15,7 @@ export interface SteeringLockEntry {
   name: string;
   /** Normalized source identifier (e.g. "incu/kiro-steering"). */
   source: string;
-  /** Source provider: "github" | "local". */
+  /** Source provider: "github" | "local" | "git". */
   sourceType: string;
   /** Original URL/path used to install (for re-fetching updates). */
   sourceUrl?: string;

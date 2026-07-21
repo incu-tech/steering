@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 2,
+  "updatedAt": "2026-07-21T14:21:29Z",
+  "flow": "feature",
+  "way": "incu/incu-way",
+  "wayVersion": "1.1.0",
+  "discipline": "development",
+  "slug": "002-git-sources",
+  "branch": "feat/git-sources",
+  "worktree": "",
+  "isolationType": "branch",
+  "title": "Generic Git source support",
+  "ticket": null,
+  "lastPhase": "validation",
+  "phase": "pr-main",
+  "documents": [
+    {
+      "name": "PRD.md",
+      "path": "docs/prds/002-git-sources/PRD.md",
+      "status": "approved"
+    },
+    {
+      "name": "PLAN.md",
+      "path": "docs/prds/002-git-sources/PLAN.md",
+      "status": "approved"
+    },
+    {
+      "name": "TESTING.md",
+      "path": "docs/prds/002-git-sources/TESTING.md",
+      "status": "approved"
+    }
+  ],
+  "scans": [
+    {
+      "tool": "snyk-code",
+      "pass": false,
+      "newIssues": 0,
+      "at": null
+    },
+    {
+      "tool": "snyk-sca",
+      "pass": false,
+      "newIssues": 0,
+      "at": null
+    }
+  ],
+  "gates": [
+    {
+      "id": "prd",
+      "label": "PRD review",
+      "status": "passed",
+      "at": "2026-07-21T13:41:53Z"
+    },
+    {
+      "id": "plan",
+      "label": "Plan review",
+      "status": "passed",
+      "at": "2026-07-21T13:44:00Z"
+    },
+    {
+      "id": "testing",
+      "label": "User testing",
+      "status": "passed",
+      "at": "2026-07-21T14:20:06Z"
+    },
+    {
+      "id": "pr-develop",
+      "label": "PR feat→develop",
+      "status": "pending",
+      "at": null,
+      "url": null
+    },
+    {
+      "id": "pr-main",
+      "label": "Release",
+      "status": "pending",
+      "at": null,
+      "url": "https://github.com/incu-tech/steering/pull/5"
+    }
+  ],
+  "steps": [
+    {
+      "id": "A1",
+      "label": "Restore WIP stash; reconcile",
+      "status": "done"
+    },
+    {
+      "id": "A2",
+      "label": "cloneRepo (shallow, ref, commit fallback)",
+      "status": "done"
+    },
+    {
+      "id": "A3",
+      "label": "GIT_TERMINAL_PROMPT=0; delegated auth",
+      "status": "done"
+    },
+    {
+      "id": "A4",
+      "label": "cleanupClone + isGitUrl",
+      "status": "done"
+    },
+    {
+      "id": "A5",
+      "label": "git-absent error",
+      "status": "done"
+    },
+    {
+      "id": "B1",
+      "label": "gitFileSource (blob-SHA hash)",
+      "status": "done"
+    },
+    {
+      "id": "B2",
+      "label": "resolveGit (clone→discover→cleanup)",
+      "status": "done"
+    },
+    {
+      "id": "B3",
+      "label": "dispatch git/gitlab; sourceType += git",
+      "status": "done"
+    },
+    {
+      "id": "B4",
+      "label": "GitCloneError → ResolveError",
+      "status": "done"
+    },
+    {
+      "id": "C1",
+      "label": "inferSourceType via isGitUrl",
+      "status": "done"
+    },
+    {
+      "id": "C2",
+      "label": "clone cache per (source,ref) + cleanup",
+      "status": "done"
+    },
+    {
+      "id": "C3",
+      "label": "remoteHash = computeGitBlobSha; wire paths",
+      "status": "done"
+    },
+    {
+      "id": "C4",
+      "label": "steering-lock sourceType comment",
+      "status": "done"
+    },
+    {
+      "id": "D1",
+      "label": "parser tests (git/ssh)",
+      "status": "done"
+    },
+    {
+      "id": "D2",
+      "label": "resolver integration test (temp git repo)",
+      "status": "done"
+    },
+    {
+      "id": "D3",
+      "label": "regression: existing suites green",
+      "status": "done"
+    },
+    {
+      "id": "E1",
+      "label": "type-check/test/format green",
+      "status": "done"
+    },
+    {
+      "id": "E2",
+      "label": "Snyk scans clean (tooling unavailable — see TESTING.md)",
+      "status": "blocked"
+    },
+    {
+      "id": "E3",
+      "label": "README/CLAUDE note",
+      "status": "done"
+    },
+    {
+      "id": "E4",
+      "label": "TESTING.md",
+      "status": "done"
+    }
+  ]
+}
