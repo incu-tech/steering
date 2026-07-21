@@ -119,6 +119,26 @@ export function getFormatSpec(format: AgentFormat): FormatSpec {
   return FORMATS[format];
 }
 
+/**
+ * Alternate agent names accepted by `--agent` / `--to` / `--from`, mapped to
+ * their canonical format id. Covers the names the `skills` CLI uses for the
+ * same agents, so both tools accept the same values (the canonical ids stay
+ * unchanged — they are persisted in lock files). Codex and skills' "universal"
+ * read AGENTS.md; skills' `kiro-cli` shares Kiro's steering directory.
+ */
+export const FORMAT_ALIASES: Record<string, AgentFormat> = {
+  'github-copilot': 'copilot',
+  codex: 'agents-md',
+  universal: 'agents-md',
+  'kiro-cli': 'kiro',
+};
+
+/** Resolve a user-supplied format name (canonical id or alias). */
+export function resolveFormatName(value: string): AgentFormat | undefined {
+  if ((Object.keys(FORMATS) as string[]).includes(value)) return value as AgentFormat;
+  return FORMAT_ALIASES[value];
+}
+
 /** True when the format can natively represent the given inclusion mode. */
 export function supportsInclusion(format: AgentFormat, mode: InclusionMode): boolean {
   return FORMATS[format].supports.includes(mode);

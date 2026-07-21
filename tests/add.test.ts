@@ -54,6 +54,24 @@ describe('parseAddOptions', () => {
     expect(options.all).toBe(true);
     expect(options.dryRun).toBe(true);
   });
+
+  it('accepts skills-style agent aliases', () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { options } = parseAddOptions([
+      'org/repo',
+      '--agent',
+      'github-copilot',
+      '--agent',
+      'codex',
+      '--agent',
+      'kiro-cli',
+      '--agent',
+      'universal',
+    ]);
+    // codex/universal both resolve to agents-md; the duplicate is deduped later.
+    expect(options.agents).toEqual(['copilot', 'agents-md', 'kiro', 'agents-md']);
+    vi.restoreAllMocks();
+  });
 });
 
 describe('runAdd (local source → workspace)', () => {

@@ -102,6 +102,11 @@ npx steering.sh init my-standards   # scaffold a new steering package
 `kiro`, `claude-code`, `cursor`, `windsurf`, `copilot`, `opencode`, `agents-md`,
 `cline`.
 
+The agent names used by [`npx skills`](https://github.com/vercel-labs/skills)
+are accepted as aliases, so the same `--agent` value works with both tools:
+`github-copilot` → `copilot`, `codex` and `universal` → `agents-md` (Codex
+reads `AGENTS.md`), `kiro-cli` → `kiro`.
+
 A file authored once is installed (or converted) into each agent's native
 location and frontmatter. Kiro is the **canonical** format — the most expressive
 schema, used as the pivot when converting between formats. Without `--agent`,

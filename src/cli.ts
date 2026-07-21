@@ -61,6 +61,7 @@ ${c.bold('convert options:')}
   --force           Overwrite existing files without asking
 
 ${c.bold('Formats:')} kiro, claude-code, cursor, windsurf, copilot, opencode, agents-md, cline
+${c.bold('Aliases:')} github-copilot → copilot, codex/universal → agents-md, kiro-cli → kiro
 
 ${c.bold('list / check / update / remove options:')}
   -g, --global      Target global installs
