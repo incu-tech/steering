@@ -102,13 +102,15 @@ describe('runAdd (local source → workspace)', () => {
     expect(security).toMatch(/Security Standards/);
 
     const lock = JSON.parse(await readFile(join(dir, 'steering-lock.json'), 'utf-8'));
-    expect(lock.version).toBe(1);
+    expect(lock.version).toBe(2);
     expect(Object.keys(lock.steering).sort()).toEqual(['java-conventions', 'security']);
-    // Local lock is minimal: name + source + path only, no hash/timestamp.
+    // Local lock records the source hash + package version (no timestamps).
     expect(lock.steering.security).toEqual({
       name: 'security',
       source: FIXTURE,
       steeringFilePath: 'steering/security.md',
+      steeringFileHash: expect.stringMatching(/^[a-f0-9]{64}$/), // sha256 for local
+      sourceVersion: '1.0.0',
     });
   });
 
@@ -194,11 +196,13 @@ describe('runAdd (multi-target)', () => {
       'security@cursor',
       'security@kiro',
     ]);
-    // kiro→kiro entry stays minimal (no format fields); cursor entry records them.
+    // kiro→kiro entry omits format fields (no conversion); cursor entry records them.
     expect(lock.steering['security@kiro']).toEqual({
       name: 'security',
       source: FIXTURE,
       steeringFilePath: 'steering/security.md',
+      steeringFileHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      sourceVersion: '1.0.0',
     });
     expect(lock.steering['security@cursor']).toMatchObject({ targetFormat: 'cursor' });
   });

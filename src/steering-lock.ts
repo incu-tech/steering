@@ -25,6 +25,12 @@ export interface SteeringLockEntry {
   steeringFilePath: string;
   /** Change-detection hash of the SOURCE file (git blob SHA for github, sha256 for local). */
   steeringFileHash: string;
+  /**
+   * Version of the source package (`steering.json` `version`) at install/update
+   * time, when the source has a manifest. Informational — reported by `list`;
+   * refreshed best-effort on `update`. Absent for manifest-less sources.
+   */
+  sourceVersion?: string;
   /** Detected format of the source file. */
   sourceFormat: AgentFormat;
   /** Format the file was installed as (determines its on-disk path/extension). */

@@ -13,6 +13,7 @@ interface ListEntry {
   name: string;
   source?: string;
   targetFormat: AgentFormat;
+  version?: string;
 }
 
 function parseListOptions(args: string[]): ListOptions {
@@ -35,7 +36,8 @@ function printScope(title: string, entries: ListEntry[]): void {
   }
   const pad = Math.max(...entries.map((e) => e.name.length));
   for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    const from = e.source ? c.dim(`from ${e.source}`) : '';
+    const version = e.version ? c.dim(`@${e.version} `) : '';
+    const from = e.source ? c.dim(`from ${version}${e.source}`) : '';
     info(`  ${c.green('✓')} ${e.name.padEnd(pad)}  ${c.dim(`[${e.targetFormat}]`)}  ${from}`);
   }
   info('');
@@ -54,6 +56,7 @@ export async function runList(args: string[]): Promise<void> {
       name: e.name,
       source: e.source,
       targetFormat: e.targetFormat ?? 'kiro',
+      version: e.sourceVersion,
     }));
     printScope('Workspace steering files:', entries);
   }
@@ -64,6 +67,7 @@ export async function runList(args: string[]): Promise<void> {
       name: e.name,
       source: e.source,
       targetFormat: e.targetFormat ?? 'kiro',
+      version: e.sourceVersion,
     }));
     printScope('Global steering files:', entries);
   }
