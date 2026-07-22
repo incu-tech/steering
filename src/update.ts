@@ -14,7 +14,9 @@ import { cloneRepo, cleanupClone, isGitUrl, type ClonedRepo } from './git.ts';
 import { parseOwnerRepo } from './source-parser.ts';
 import { getInstalledPath, writeRuleFile } from './installer.ts';
 import { getAllGlobalLocked, addToGlobalLock } from './steering-lock.ts';
-import { readLocalLock } from './local-lock.ts';
+import { readLocalLock, addToLocalLock } from './local-lock.ts';
+import { parseManifest } from './manifest.ts';
+import { MANIFEST_FILE } from './constants.ts';
 import { parseContent } from './convert/parse/index.ts';
 import { renderRules } from './convert/convert.ts';
 import { c, info, warn } from './ui.ts';
@@ -37,14 +39,18 @@ interface CheckItem {
   ref?: string;
   sourceFormat: AgentFormat;
   targetFormat: AgentFormat;
-  /** Stored source hash (global lock only); null/undefined for hashless workspace. */
+  /** Stored source hash from the lock; null/undefined for legacy hashless entries. */
   storedHash?: string | null;
+  /** Stored source package version from the lock, if any. */
+  storedVersion?: string;
 }
 
 interface CheckResult extends CheckItem {
   status: Status;
   /** Remote source hash (github blob SHA / local sha256), when computed. */
   remoteHash?: string;
+  /** Source package version fetched from the remote, when recomputed. */
+  newVersion?: string;
   /** Converted content to write on update. */
   newContent?: string;
 }
@@ -105,6 +111,7 @@ async function collectItems(options: UpdateOptions, cwd: string): Promise<CheckI
         sourceFormat: entry.sourceFormat ?? 'kiro',
         targetFormat: entry.targetFormat ?? 'kiro',
         storedHash: entry.steeringFileHash,
+        storedVersion: entry.sourceVersion,
       });
     }
   }
@@ -120,6 +127,8 @@ async function collectItems(options: UpdateOptions, cwd: string): Promise<CheckI
         steeringFilePath: entry.steeringFilePath,
         sourceFormat: entry.sourceFormat ?? 'kiro',
         targetFormat: entry.targetFormat ?? 'kiro',
+        storedHash: entry.steeringFileHash,
+        storedVersion: entry.sourceVersion,
       });
     }
   }
@@ -165,9 +174,38 @@ async function fetchSource(
 }
 
 /**
- * Source-side change-detection hash for the global-lock short-circuit. GitHub
- * reads the blob SHA from the tree (no download); git/local hash the fetched
- * content (git blob SHA vs sha256), matching how each was installed.
+ * Best-effort source package version: reads `steering.json` at the repo root and
+ * returns its `version`. Used to refresh the lock's recorded version on update.
+ * Sources installed from a subpath keep their previously-recorded version (the
+ * lock doesn't store the subpath), and manifest-less sources return undefined.
+ */
+async function fetchManifestVersion(
+  item: CheckItem,
+  tree: RepoTree | null,
+  cloneDir?: string
+): Promise<string | undefined> {
+  let raw: string | null = null;
+  try {
+    if (item.sourceType === 'github') {
+      if (!tree) return undefined;
+      raw = await fetchFileContent(item.source, MANIFEST_FILE, tree.branch, getGitHubToken());
+    } else if (item.sourceType === 'git') {
+      if (!cloneDir) return undefined;
+      raw = await readFile(join(cloneDir, MANIFEST_FILE), 'utf-8');
+    } else {
+      raw = await readFile(`${item.source}/${MANIFEST_FILE}`, 'utf-8');
+    }
+  } catch {
+    return undefined;
+  }
+  if (raw === null) return undefined;
+  return parseManifest(raw).manifest?.version;
+}
+
+/**
+ * Source-side change-detection hash for the lock short-circuit. GitHub reads the
+ * blob SHA from the tree (no download); git/local hash the fetched content (git
+ * blob SHA vs sha256), matching how each was installed.
  */
 async function remoteHashFor(
   item: CheckItem,
@@ -186,6 +224,9 @@ async function checkItems(items: CheckItem[], cwd: string): Promise<CheckResult[
   // Clone once per (source, ref) and reuse across all files from that source;
   // cleaned up in the finally below (OQ5).
   const cloneCache = new Map<string, ClonedRepo | null>();
+  // One manifest-version lookup per (source, ref); only populated when at least
+  // one file from that source has an update, so unchanged sources cost nothing.
+  const versionCache = new Map<string, string | undefined>();
   const results: CheckResult[] = [];
 
   try {
@@ -216,19 +257,30 @@ async function checkItems(items: CheckItem[], cwd: string): Promise<CheckResult[
         cloneDir = cloned.dir;
       }
 
-      // Global lock stores the source hash → cheap short-circuit (no content
-      // download / conversion) when the source is unchanged.
-      if (item.global && item.storedHash) {
+      const cacheKey = `${item.source}@${item.ref ?? ''}`;
+      const versionFor = async (): Promise<string | undefined> => {
+        if (!versionCache.has(cacheKey)) {
+          versionCache.set(cacheKey, await fetchManifestVersion(item, tree, cloneDir));
+        }
+        return versionCache.get(cacheKey);
+      };
+
+      // Both locks store the source hash → cheap short-circuit (no content
+      // download / conversion) when the source is unchanged. Legacy hashless
+      // workspace entries fall through to the download-and-diff path below.
+      if (item.storedHash) {
         const remoteHash = await remoteHashFor(item, tree, cloneDir);
         if (!remoteHash) {
           results.push({ ...item, status: 'error' });
           continue;
         }
+        const changed = remoteHash !== item.storedHash;
         results.push({
           ...item,
           ref: tree?.branch ?? item.ref,
           remoteHash,
-          status: remoteHash === item.storedHash ? 'up-to-date' : 'update-available',
+          newVersion: changed ? await versionFor() : undefined,
+          status: changed ? 'update-available' : 'up-to-date',
         });
         continue;
       }
@@ -249,6 +301,7 @@ async function checkItems(items: CheckItem[], cwd: string): Promise<CheckResult[
         results.push({ ...item, status: 'error' });
         continue;
       }
+      const changed = newContent !== installed;
       results.push({
         ...item,
         ref: tree?.branch ?? item.ref,
@@ -259,7 +312,8 @@ async function checkItems(items: CheckItem[], cwd: string): Promise<CheckResult[
             : item.sourceType === 'git'
               ? computeGitBlobSha(sourceContent)
               : sha256(sourceContent),
-        status: newContent === installed ? 'up-to-date' : 'update-available',
+        newVersion: changed ? await versionFor() : undefined,
+        status: changed ? 'update-available' : 'up-to-date',
       });
     }
   } finally {
@@ -375,6 +429,9 @@ export async function runUpdate(args: string[]): Promise<void> {
 
     await writeRuleFile(r.targetFormat, r.name, content, r.global, cwd);
 
+    const newHash = r.remoteHash ?? r.storedHash ?? '';
+    const newVersion = r.newVersion ?? r.storedVersion;
+
     if (r.global) {
       await addToGlobalLock({
         name: r.name,
@@ -382,13 +439,28 @@ export async function runUpdate(args: string[]): Promise<void> {
         sourceType: r.sourceType,
         ref: r.ref,
         steeringFilePath: r.steeringFilePath,
-        steeringFileHash: r.remoteHash ?? r.storedHash ?? '',
+        steeringFileHash: newHash,
+        ...(newVersion ? { sourceVersion: newVersion } : {}),
         sourceFormat: r.sourceFormat,
         targetFormat: r.targetFormat,
         scope: 'global',
       });
+    } else {
+      // Refresh the workspace lock's recorded source hash/version. Mirror `add`:
+      // only record formats when conversion is involved (keeps kiro→kiro small).
+      const isNativeKiro = r.sourceFormat === 'kiro' && r.targetFormat === 'kiro';
+      await addToLocalLock(
+        {
+          name: r.name,
+          source: r.source,
+          steeringFilePath: r.steeringFilePath,
+          ...(newHash ? { steeringFileHash: newHash } : {}),
+          ...(newVersion ? { sourceVersion: newVersion } : {}),
+          ...(isNativeKiro ? {} : { sourceFormat: r.sourceFormat, targetFormat: r.targetFormat }),
+        },
+        cwd
+      );
     }
-    // Workspace lock is hash-free and stable — nothing to rewrite.
 
     info(`${c.green('✓')} Updated ${r.name}`);
     updated++;

@@ -32,6 +32,12 @@ export interface SteeringFile {
    * repo tree; for local sources it is a SHA-256 of the file content.
    */
   hash: string;
+  /**
+   * Version of the source package (`steering.json` `version`), when the source
+   * has a manifest. Recorded in the lock files so `list`/`check` can report the
+   * installed package version. Absent for manifest-less sources.
+   */
+  sourceVersion?: string;
   /** Non-fatal frontmatter validation warnings (shown but never block install). */
   warnings: string[];
 }

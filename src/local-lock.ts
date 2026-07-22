@@ -4,15 +4,17 @@ import { LOCAL_LOCK_FILE } from './constants.ts';
 import { upsertByFormat, removeByName } from './lock-keys.ts';
 import type { AgentFormat } from './convert/types.ts';
 
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 /**
  * One steering file in the project lock (`steering-lock.json`).
  *
- * Intentionally minimal and hash/timestamp-free (unlike skills' local lock) to
- * minimize git merge conflicts: two branches adding different files produce
- * non-overlapping keys that git auto-merges. Change detection at `check`/`update`
- * time recomputes the git blob SHA from the installed file instead of storing it.
+ * Kept small (no timestamps) so the committed file stays merge-friendly: two
+ * branches adding different files produce non-overlapping keys that git
+ * auto-merges. Records the SOURCE change-detection hash (`steeringFileHash`) so
+ * `check`/`update` can tell a source changed without re-downloading and
+ * re-converting every file. v1 locks omit the hash; entries without it fall back
+ * to the download-and-diff path until the next `update` rewrites them.
  */
 export interface LocalLockEntry {
   name: string;
@@ -21,10 +23,19 @@ export interface LocalLockEntry {
   /** Path of the `.md` within the source repo. */
   steeringFilePath: string;
   /**
-   * Stable conversion metadata. Intentionally hash-free (unlike the global
-   * lock) so the committed file doesn't churn on every upstream change — `check`
-   * re-converts the source and diffs against the installed file. Optional for
-   * backward compatibility with v1 (Kiro-only) locks; absent ⇒ kiro→kiro.
+   * Change-detection hash of the SOURCE file (git blob SHA for github/git,
+   * sha256 for local) at install/update time. Lets `check` compare against the
+   * remote hash cheaply. Optional for backward compatibility with v1 locks.
+   */
+  steeringFileHash?: string;
+  /**
+   * Version of the source package (`steering.json` `version`) at install/update
+   * time, when the source has a manifest. Informational; absent otherwise.
+   */
+  sourceVersion?: string;
+  /**
+   * Stable conversion metadata. Optional for backward compatibility with v1
+   * (Kiro-only) locks; absent ⇒ kiro→kiro.
    */
   sourceFormat?: AgentFormat;
   targetFormat?: AgentFormat;

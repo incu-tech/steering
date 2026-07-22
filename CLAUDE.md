@@ -9,6 +9,7 @@ CLI (distributed via `npx`) that manages **AI-agent steering files** the same wa
 context files from Git repos (public and private).
 
 Published on npm under three names (same tool):
+
 - **`@incu/steering`** — canonical package (all the logic + library).
 - **`steering.sh`** and **`steering-cli`** — thin aliases in `aliases/` that depend on
   `@incu/steering` and only run its CLI (`import '@incu/steering/cli'`). A single
@@ -50,12 +51,17 @@ pnpm build         # obuild → dist/
 
 - **Install paths:** each format installs into its own dir (Kiro →
   `.kiro/steering/<name>.md`). Global with `-g`.
-- **Lock files:**
-  - Local (workspace): `steering-lock.json`, **minimal** (no hashes/timestamps) to
-    avoid merge conflicts; change detection recomputes the file's blob SHA from disk.
+- **Lock files:** both record the **source** change-detection hash
+  (`steeringFileHash`) and the source package version (`sourceVersion`, from
+  `steering.json`); neither stores timestamps.
+  - Local (workspace): `steering-lock.json` (v2), kept small (no timestamps) so it
+    stays merge-friendly. v1 locks (hashless) still read: entries without a hash
+    fall back to download-and-diff until the next `update` rewrites them.
   - Global: `~/.steering/steering-lock.json` (neutral dir, not under any agent's home).
-- **Change detection:** git blob SHA. For GitHub it's read from the API tree; for
-  local/cloned it's computed with `computeGitBlobSha()`. `check`/`update` compare that SHA.
+- **Change detection:** git blob SHA (sha256 for local sources). For GitHub it's read
+  from the API tree; for local/cloned it's computed with `computeGitBlobSha()`.
+  `check`/`update` compare the remote hash against the lock's `steeringFileHash` — a
+  cheap short-circuit (no download/convert) when the source is unchanged.
 - **Auth (GitHub):** lazy. **Public repos work without a token**; the token is only
   looked up on 401/403/rate-limit. Order: `GITHUB_TOKEN` → `GH_TOKEN` → `gh auth token`.
   `gh` is not required.
@@ -68,9 +74,7 @@ pnpm build         # obuild → dist/
 {
   "name": "incu-standards",
   "version": "1.0.0",
-  "steering": [
-    { "name": "security", "description": "...", "file": "steering/security.md" }
-  ]
+  "steering": [{ "name": "security", "description": "...", "file": "steering/security.md" }]
 }
 ```
 

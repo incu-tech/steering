@@ -416,12 +416,13 @@ export async function runAdd(source: string | undefined, options: AddOptions): P
             ref: resolved.ref,
             steeringFilePath: file.repoPath,
             steeringFileHash: file.hash,
+            ...(file.sourceVersion ? { sourceVersion: file.sourceVersion } : {}),
             sourceFormat: file.sourceFormat,
             targetFormat,
             scope: 'global',
           });
         } else {
-          // Keep the committed lock minimal for the common kiro→kiro case (no
+          // Keep the committed lock small for the common kiro→kiro case (no
           // format churn); only record formats when conversion is involved.
           const isNativeKiro = file.sourceFormat === 'kiro' && targetFormat === 'kiro';
           await addToLocalLock(
@@ -429,6 +430,8 @@ export async function runAdd(source: string | undefined, options: AddOptions): P
               name: doc.name,
               source: resolved.sourceId,
               steeringFilePath: file.repoPath,
+              steeringFileHash: file.hash,
+              ...(file.sourceVersion ? { sourceVersion: file.sourceVersion } : {}),
               ...(isNativeKiro ? {} : { sourceFormat: file.sourceFormat, targetFormat }),
             },
             cwd

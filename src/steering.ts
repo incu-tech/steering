@@ -61,7 +61,8 @@ async function toSteeringFile(
   name: string,
   description: string,
   repoPath: string,
-  from?: AgentFormat
+  from?: AgentFormat,
+  sourceVersion?: string
 ): Promise<SteeringFile | null> {
   const content = await source.read(repoPath);
   if (content === null) return null;
@@ -72,7 +73,8 @@ async function toSteeringFile(
   const rules: CanonicalRule[] = parseContent(content, sourceFormat, name);
 
   // Kiro frontmatter validation stays advisory and Kiro-specific.
-  const warnings = sourceFormat === 'kiro' ? validateKiroFrontmatter(content, basename(repoPath)).warnings : [];
+  const warnings =
+    sourceFormat === 'kiro' ? validateKiroFrontmatter(content, basename(repoPath)).warnings : [];
 
   return {
     name,
@@ -83,6 +85,7 @@ async function toSteeringFile(
     rules,
     inclusion: rules[0]?.inclusion ?? 'always',
     hash: source.hash(repoPath, content),
+    sourceVersion,
     warnings,
   };
 }
@@ -111,7 +114,14 @@ export async function discoverSteering(
     const results: SteeringFile[] = [];
     for (const entry of manifest.steering) {
       const repoPath = joinRepoPath(base, entry.file);
-      const file = await toSteeringFile(source, entry.name, entry.description ?? '', repoPath, from);
+      const file = await toSteeringFile(
+        source,
+        entry.name,
+        entry.description ?? '',
+        repoPath,
+        from,
+        manifest.version
+      );
       if (!file) {
         throw new ManifestError([
           `steering.json lists "${entry.name}" → ${entry.file}, but that file was not found`,

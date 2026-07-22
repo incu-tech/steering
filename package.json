@@ -1,6 +1,6 @@
 {
   "name": "@incu/steering",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Package manager for AI agent steering files — npx steering.sh add owner/repo",
   "type": "module",
   "bin": {
