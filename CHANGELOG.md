@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Versions apply to all three published packages (`@incu/steering`, `steering-cli`,
 `steering.sh`), which are released together.
 
+## [0.5.0] — 2026-07-22
+
+### Added
+
+- **Source SHA + package version in the workspace lock.** `steering-lock.json` now records
+  each file's source change-detection hash (`steeringFileHash`) and the source package
+  version (`sourceVersion`, from `steering.json`), alongside the global lock which already
+  stored the hash. `steering list` now shows the installed package version.
+
+### Changed
+
+- **Faster `check`/`update`.** Both scopes now short-circuit on the stored source hash —
+  when the source is unchanged there is no download or conversion. Previously the workspace
+  path re-downloaded and re-converted every file to diff it against disk.
+- **Workspace lock bumped to v2.** Existing v1 (hashless) locks still read: entries without
+  a hash fall back to the previous download-and-diff behavior until the next `update`
+  rewrites them with a hash and version. No manual migration needed.
+
 ## [0.4.0] — 2026-07-21
 
 ### Added
@@ -54,5 +72,6 @@ Versions apply to all three published packages (`@incu/steering`, `steering-cli`
 Releases up to and including `v0.2.3` predate this changelog; see the git history and the
 `vX.Y.Z` tags for details.
 
+[0.5.0]: https://github.com/incu-tech/steering/releases/tag/v0.5.0
 [0.4.0]: https://github.com/incu-tech/steering/releases/tag/v0.4.0
 [0.3.0]: https://github.com/incu-tech/steering/releases/tag/v0.3.0
