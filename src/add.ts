@@ -4,7 +4,13 @@ import * as p from '@clack/prompts';
 import { parseSource } from './source-parser.ts';
 import { resolveSource, ResolveError, type ResolvedSource } from './resolve.ts';
 import { ManifestError, filterByName } from './steering.ts';
-import { fileExists, getInstalledPath, getTargetDir, writeRuleFile } from './installer.ts';
+import {
+  fileExists,
+  getInstalledPath,
+  getTargetDir,
+  writeRuleFile,
+  writeSourceRuleFile,
+} from './installer.ts';
 import { addToGlobalLock } from './steering-lock.ts';
 import { addToLocalLock } from './local-lock.ts';
 import { AGENT_FORMATS, type AgentFormat } from './convert/types.ts';
@@ -397,15 +403,30 @@ export async function runAdd(source: string | undefined, options: AddOptions): P
   const agentsUsed = new Set<AgentFormat>();
 
   for (const targetFormat of targets) {
+    const single = getFormatSpec(targetFormat).single;
     for (const { file, docs } of planInstall(selected, targetFormat)) {
       for (const doc of docs) {
         const targetPath = getInstalledPath(doc.name, global, cwd, targetFormat);
-        if (await fileExists(targetPath)) {
+        // A single-file format (AGENTS.md) MERGES this source's own block rather than
+        // overwriting the shared file, so there is nothing destructive left to confirm —
+        // the "already exists, overwrite?" prompt only applies to a real per-source file.
+        if (!single && (await fileExists(targetPath))) {
           const ok = await confirmOverwrite(doc.name, targetPath, options);
           if (!ok) continue;
         }
 
-        await writeRuleFile(targetFormat, doc.name, doc.content, global, cwd);
+        if (single) {
+          await writeSourceRuleFile(
+            targetFormat,
+            doc.name,
+            doc.content,
+            resolved.sourceId,
+            global,
+            cwd
+          );
+        } else {
+          await writeRuleFile(targetFormat, doc.name, doc.content, global, cwd);
+        }
 
         if (global) {
           await addToGlobalLock({

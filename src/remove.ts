@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import { getInstalledPath, removeSteeringFile } from './installer.ts';
+import { getInstalledPath, removeSteeringFile, removeSourceRuleFile } from './installer.ts';
 import { getAllGlobalLocked, removeFromGlobalLock } from './steering-lock.ts';
 import { readLocalLock, removeFromLocalLock } from './local-lock.ts';
 import { c, fail, info, isInteractive, success, warn } from './ui.ts';
@@ -93,7 +93,7 @@ export async function runRemove(names: string[], options: RemoveOptions): Promis
 
     for (const entry of entries) {
       const format = entry.targetFormat ?? 'kiro';
-      const deleted = await removeSteeringFile(name, global, cwd, format);
+      const deleted = await removeSourceRuleFile(name, entry.source, global, cwd, format);
       if (!deleted) {
         warn(
           `Lock entry removed but file was missing: ${getInstalledPath(name, global, cwd, format)}`

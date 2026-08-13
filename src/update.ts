@@ -12,7 +12,8 @@ import {
 } from './blob.ts';
 import { cloneRepo, cleanupClone, isGitUrl, type ClonedRepo } from './git.ts';
 import { parseOwnerRepo } from './source-parser.ts';
-import { getInstalledPath, writeRuleFile } from './installer.ts';
+import { getInstalledPath, writeRuleFile, writeSourceRuleFile } from './installer.ts';
+import { getFormatSpec } from './convert/formats.ts';
 import { getAllGlobalLocked, addToGlobalLock } from './steering-lock.ts';
 import { readLocalLock, addToLocalLock } from './local-lock.ts';
 import { parseManifest } from './manifest.ts';
@@ -427,7 +428,11 @@ export async function runUpdate(args: string[]): Promise<void> {
       continue;
     }
 
-    await writeRuleFile(r.targetFormat, r.name, content, r.global, cwd);
+    if (getFormatSpec(r.targetFormat).single) {
+      await writeSourceRuleFile(r.targetFormat, r.name, content, r.source, r.global, cwd);
+    } else {
+      await writeRuleFile(r.targetFormat, r.name, content, r.global, cwd);
+    }
 
     const newHash = r.remoteHash ?? r.storedHash ?? '';
     const newVersion = r.newVersion ?? r.storedVersion;
