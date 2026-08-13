@@ -8,6 +8,8 @@ import {
   getInstalledPath,
   writeSteeringFile,
   removeSteeringFile,
+  writeSourceRuleFile,
+  removeSourceRuleFile,
   isInstalled,
   listInstalledNames,
 } from '../src/installer.ts';
@@ -63,5 +65,62 @@ describe('installer (workspace scope)', () => {
     expect(await removeSteeringFile('security', false, dir)).toBe(true);
     expect(await isInstalled('security', false, dir)).toBe(false);
     expect(await removeSteeringFile('security', false, dir)).toBe(false);
+  });
+});
+
+describe('writeSourceRuleFile / removeSourceRuleFile (single-file formats)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'steering-test-single-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('two sources installing to agents-md do not clobber each other', async () => {
+    await writeSourceRuleFile('agents-md', 'agents', '# Rule A', 'owner/a', false, dir);
+    await writeSourceRuleFile('agents-md', 'agents', '# Rule B', 'owner/b', false, dir);
+
+    const content = await readFile(getInstalledPath('agents', false, dir, 'agents-md'), 'utf-8');
+    expect(content).toContain('# Rule A');
+    expect(content).toContain('# Rule B');
+  });
+
+  it('re-installing the same source replaces only its own content', async () => {
+    await writeSourceRuleFile('agents-md', 'agents', '# Rule A v1', 'owner/a', false, dir);
+    await writeSourceRuleFile('agents-md', 'agents', '# Rule B', 'owner/b', false, dir);
+    await writeSourceRuleFile('agents-md', 'agents', '# Rule A v2', 'owner/a', false, dir);
+
+    const content = await readFile(getInstalledPath('agents', false, dir, 'agents-md'), 'utf-8');
+    expect(content).toContain('# Rule A v2');
+    expect(content).not.toContain('Rule A v1');
+    expect(content).toContain('# Rule B');
+  });
+
+  it('removing one source keeps the other source installed', async () => {
+    await writeSourceRuleFile('agents-md', 'agents', '# Rule A', 'owner/a', false, dir);
+    await writeSourceRuleFile('agents-md', 'agents', '# Rule B', 'owner/b', false, dir);
+
+    const removed = await removeSourceRuleFile('agents', 'owner/a', false, dir, 'agents-md');
+    expect(removed).toBe(true);
+
+    const path = getInstalledPath('agents', false, dir, 'agents-md');
+    expect(await isInstalled('agents', false, dir, 'agents-md')).toBe(true);
+    const content = await readFile(path, 'utf-8');
+    expect(content).not.toContain('Rule A');
+    expect(content).toContain('# Rule B');
+  });
+
+  it('removing the last source deletes the shared file', async () => {
+    await writeSourceRuleFile('agents-md', 'agents', '# Rule A', 'owner/a', false, dir);
+    await removeSourceRuleFile('agents', 'owner/a', false, dir, 'agents-md');
+    expect(await isInstalled('agents', false, dir, 'agents-md')).toBe(false);
+  });
+
+  it('a multi-file format behaves exactly like writeRuleFile/removeSteeringFile', async () => {
+    await writeSourceRuleFile('kiro', 'security', '# Security', 'owner/a', false, dir);
+    expect(await isInstalled('security', false, dir, 'kiro')).toBe(true);
+    expect(await removeSourceRuleFile('security', 'owner/a', false, dir, 'kiro')).toBe(true);
+    expect(await isInstalled('security', false, dir, 'kiro')).toBe(false);
   });
 });
