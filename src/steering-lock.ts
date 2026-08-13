@@ -86,9 +86,10 @@ export async function addToGlobalLock(
 ): Promise<void> {
   const lock = await readGlobalLock();
   const now = new Date().toISOString();
-  // Preserve installedAt for this exact (name, format) — not just the name,
-  // since the same name may be installed under several formats.
-  const existing = findEntry(lock.steering, entry.name, entry.targetFormat);
+  // Preserve installedAt for this exact (name, format[, source]) — not just the
+  // name, since the same name may be installed under several formats, or (for a
+  // single-file format) from several sources sharing one format.
+  const existing = findEntry(lock.steering, entry.name, entry.targetFormat, entry.source);
   upsertByFormat(lock.steering, {
     ...entry,
     installedAt: existing?.installedAt ?? now,
@@ -98,15 +99,18 @@ export async function addToGlobalLock(
 }
 
 /**
- * Remove a name from the global lock — every format, or only `format` if given.
- * Returns the removed entries so the caller can delete their on-disk files.
+ * Remove a name from the global lock — every format, or only `format` if
+ * given; `source` further narrows to one specific source (meaningful only for
+ * a single-file format — see `removeByName`). Returns the removed entries so
+ * the caller can delete their on-disk files.
  */
 export async function removeFromGlobalLock(
   name: string,
-  format?: AgentFormat
+  format?: AgentFormat,
+  source?: string
 ): Promise<SteeringLockEntry[]> {
   const lock = await readGlobalLock();
-  const removed = removeByName(lock.steering, name, format);
+  const removed = removeByName(lock.steering, name, format, source);
   if (removed.length) await writeGlobalLock(lock);
   return removed;
 }
