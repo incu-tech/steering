@@ -57,7 +57,7 @@ async function installedEntries(global: boolean, cwd: string): Promise<Installed
 // A NUL byte (code point escaped, never typed literally, so it can't be
 // silently dropped or normalized by an editor/formatter) can't appear in a
 // lock name or a real source string, so splitting back is unambiguous.
-const SOURCE_SEP = String.fromCharCode(0);
+const SOURCE_SEP = String.fromCodePoint(0);
 
 /**
  * Build the interactive picker's choices: a name installed from exactly one
@@ -104,7 +104,7 @@ export async function runRemove(names: string[], options: RemoveOptions): Promis
       return;
     }
     if (!isInteractive()) {
-      const installed = [...new Set(entries.map((e) => e.name))].sort();
+      const installed = [...new Set(entries.map((e) => e.name))].sort((a, b) => a.localeCompare(b));
       fail(`Specify which steering file(s) to remove. Installed: ${installed.join(', ')}`);
     }
     const choice = await p.multiselect({
