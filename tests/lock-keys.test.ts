@@ -90,3 +90,90 @@ describe('findEntry', () => {
     expect(findEntry(s, 'security', 'windsurf')).toBeUndefined();
   });
 });
+
+// A single-file format's `name` is always the same fixed value ("agents-md"'s
+// docs/output is fixed regardless of what any entry's `name` field says), so —
+// unlike every other format — `source` is what actually tells two of its
+// entries apart. These pin the fix for the "second source overwrites the
+// first source's lock entry" bug (issue #8).
+const src = (name: string, source: string): E => ({ name, source, targetFormat: 'agents-md' });
+
+describe('upsertByFormat — single-file format keys by (format, source)', () => {
+  it('one source → bare key, same as any other format', () => {
+    const s: Record<string, E> = {};
+    upsertByFormat(s, src('agents', 'owner/repo-a'));
+    expect(Object.keys(s)).toEqual(['agents']);
+  });
+
+  it('two DIFFERENT sources of the same single-file format are two entries, not one replacing the other', () => {
+    const s: Record<string, E> = {};
+    upsertByFormat(s, src('agents', 'owner/repo-a'));
+    upsertByFormat(s, src('agents', 'owner/repo-b'));
+    expect(Object.keys(s)).toHaveLength(2);
+    const sources = Object.values(s)
+      .map((v) => v.source)
+      .sort();
+    expect(sources).toEqual(['owner/repo-a', 'owner/repo-b']);
+  });
+
+  it('re-adding the SAME source replaces its own entry in place (no growth)', () => {
+    const s: Record<string, E> = {};
+    upsertByFormat(s, src('agents', 'owner/repo-a'));
+    upsertByFormat(s, src('agents', 'owner/repo-b'));
+    upsertByFormat(s, src('agents', 'owner/repo-a')); // re-install source A
+    expect(Object.keys(s)).toHaveLength(2); // still just A and B, not 3
+  });
+
+  it('a multi-file format is unaffected: re-adding the same name from a new source still replaces (deliberate)', () => {
+    const s: Record<string, E> = {};
+    upsertByFormat(s, e('security', 'kiro'));
+    upsertByFormat(s, { ...e('security', 'kiro'), source: 'owner/repo-b' });
+    expect(Object.keys(s)).toEqual(['security']); // one entry, not two
+    expect(s.security!.source).toBe('owner/repo-b');
+  });
+});
+
+describe('removeByName — source-aware for single-file formats', () => {
+  it('omitting source removes every source sharing the name (bulk, backward compatible)', () => {
+    const s: Record<string, E> = {};
+    upsertByFormat(s, src('agents', 'owner/repo-a'));
+    upsertByFormat(s, src('agents', 'owner/repo-b'));
+    const removed = removeByName(s, 'agents');
+    expect(removed).toHaveLength(2);
+    expect(Object.keys(s)).toEqual([]);
+  });
+
+  it('passing source removes only that one, leaving the other', () => {
+    const s: Record<string, E> = {};
+    upsertByFormat(s, src('agents', 'owner/repo-a'));
+    upsertByFormat(s, src('agents', 'owner/repo-b'));
+    const removed = removeByName(s, 'agents', 'agents-md', 'owner/repo-a');
+    expect(removed).toHaveLength(1);
+    expect(removed[0]!.source).toBe('owner/repo-a');
+    expect(Object.keys(s)).toEqual(['agents']); // re-normalized to bare — one survivor
+    expect(s.agents!.source).toBe('owner/repo-b');
+  });
+
+  it('a source filter is ignored for a multi-file format (matches upsertByFormat)', () => {
+    const s: Record<string, E> = { security: e('security', 'kiro') };
+    // Even with an (irrelevant) source given, a multi-file format entry still matches by name+format alone.
+    const removed = removeByName(s, 'security', 'kiro', 'some-unrelated-source');
+    expect(removed).toHaveLength(1);
+  });
+});
+
+describe('findEntry — source-aware for single-file formats', () => {
+  it('disambiguates by source when given', () => {
+    const s: Record<string, E> = {};
+    upsertByFormat(s, src('agents', 'owner/repo-a'));
+    upsertByFormat(s, src('agents', 'owner/repo-b'));
+    expect(findEntry(s, 'agents', 'agents-md', 'owner/repo-a')?.source).toBe('owner/repo-a');
+    expect(findEntry(s, 'agents', 'agents-md', 'owner/repo-b')?.source).toBe('owner/repo-b');
+  });
+
+  it('without a source, returns whichever entry is found first (caller should pass source when it matters)', () => {
+    const s: Record<string, E> = {};
+    upsertByFormat(s, src('agents', 'owner/repo-a'));
+    expect(findEntry(s, 'agents', 'agents-md')?.source).toBe('owner/repo-a');
+  });
+});
