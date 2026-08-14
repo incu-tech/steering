@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { isSingleFileFormat, mergeSingleFileBlock, stripBlock } from './merge.ts';
+import {
+  getBlockContent,
+  hasAnyMarkerBlock,
+  isSingleFileFormat,
+  mergeSingleFileBlock,
+  stripBlock,
+} from './merge.ts';
 
 describe('isSingleFileFormat', () => {
   it('is true only for agents-md', () => {
@@ -63,6 +69,58 @@ describe('mergeSingleFileBlock', () => {
     const beginLine = out.split('\n')[0]!;
     expect(beginLine.endsWith('-->')).toBe(true);
     expect(beginLine.slice(0, -3)).not.toContain('-->');
+  });
+
+  it("a user's own content placed BELOW the block keeps its position across an update", () => {
+    const first = mergeSingleFileBlock('', 'owner/a', '# Rule A v1');
+    const withNotesBelow = `${first}\n# My notes\n`;
+    const updated = mergeSingleFileBlock(withNotesBelow, 'owner/a', '# Rule A v2');
+    const lines = updated.split('\n');
+    const blockEnd = lines.findIndex((l) => l.includes('steering:end owner/a'));
+    const notesLine = lines.findIndex((l) => l.includes('My notes'));
+    expect(blockEnd).toBeGreaterThan(-1);
+    expect(notesLine).toBeGreaterThan(blockEnd); // notes are still AFTER the block, not before it
+    expect(updated).toContain('# Rule A v2');
+    expect(updated).not.toContain('Rule A v1');
+  });
+
+  it('handles a CRLF file: matches, replaces, and does not duplicate the block', () => {
+    const crlf = (s: string): string => s.replace(/\n/g, '\r\n');
+    const first = crlf(mergeSingleFileBlock('', 'owner/a', '# Rule A v1'));
+    const updated = mergeSingleFileBlock(first, 'owner/a', '# Rule A v2');
+    expect(updated.match(/steering:begin owner\/a/g)).toHaveLength(1); // no duplicate
+    expect(updated).toContain('# Rule A v2');
+    expect(updated).not.toContain('Rule A v1');
+  });
+});
+
+describe('getBlockContent', () => {
+  it('returns undefined when the source has no block yet', () => {
+    expect(getBlockContent('# just some text\n', 'owner/a')).toBeUndefined();
+  });
+
+  it('returns the trimmed content of the matching block only', () => {
+    const afterA = mergeSingleFileBlock('', 'owner/a', '# Rule A');
+    const afterB = mergeSingleFileBlock(afterA, 'owner/b', '# Rule B');
+    expect(getBlockContent(afterB, 'owner/a')).toBe('# Rule A');
+    expect(getBlockContent(afterB, 'owner/b')).toBe('# Rule B');
+  });
+
+  it('works on a CRLF file (no stray \\r left in the extracted content)', () => {
+    const crlf = (s: string): string => s.replace(/\n/g, '\r\n');
+    const withBlock = crlf(mergeSingleFileBlock('', 'owner/a', '# Rule A'));
+    expect(getBlockContent(withBlock, 'owner/a')).toBe('# Rule A');
+  });
+});
+
+describe('hasAnyMarkerBlock', () => {
+  it('is false for a plain file', () => {
+    expect(hasAnyMarkerBlock('# just some text\n')).toBe(false);
+  });
+
+  it('is true once any source has a block, regardless of which one is asked about', () => {
+    const withBlock = mergeSingleFileBlock('', 'owner/a', '# Rule A');
+    expect(hasAnyMarkerBlock(withBlock)).toBe(true);
   });
 });
 
