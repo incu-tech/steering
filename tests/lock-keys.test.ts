@@ -154,11 +154,33 @@ describe('removeByName — source-aware for single-file formats', () => {
     expect(s.agents!.source).toBe('owner/repo-b');
   });
 
-  it('a source filter is ignored for a multi-file format (matches upsertByFormat)', () => {
-    const s: Record<string, E> = { security: e('security', 'kiro') };
-    // Even with an (irrelevant) source given, a multi-file format entry still matches by name+format alone.
-    const removed = removeByName(s, 'security', 'kiro', 'some-unrelated-source');
+  it('a source filter narrows a multi-file format too — never vacuously matches', () => {
+    const s: Record<string, E> = { security: e('security', 'kiro') }; // source: 's'
+    // An unrelated source must NOT match, even though `kiro` never needs
+    // `source` to disambiguate entries (pins the over-deletion fix).
+    expect(removeByName(s, 'security', 'kiro', 'some-unrelated-source')).toHaveLength(0);
+    expect(Object.keys(s)).toEqual(['security']); // untouched
+
+    const removed = removeByName(s, 'security', 'kiro', 's'); // the entry's actual source
     expect(removed).toHaveLength(1);
+    expect(Object.keys(s)).toEqual([]);
+  });
+
+  it('a source filter without a format only removes the entries actually from that source, whatever their format', () => {
+    // Reproduces the over-deletion bug: `--source X` with no `--agent` used to
+    // remove every non-single-file-format entry for `name` regardless of its
+    // real source, because the source check was vacuous for those formats.
+    const s: Record<string, E> = {};
+    upsertByFormat(s, { ...e('security', 'kiro'), source: 'owner/repo-a' });
+    upsertByFormat(s, { ...e('security', 'cursor'), source: 'owner/repo-b' });
+
+    const removed = removeByName(s, 'security', undefined, 'owner/repo-a');
+    expect(removed).toHaveLength(1);
+    expect(removed[0]!.targetFormat).toBe('kiro');
+    // The cursor entry came from an unrelated source — it must survive.
+    expect(Object.keys(s)).toEqual(['security']);
+    expect(s.security!.targetFormat).toBe('cursor');
+    expect(s.security!.source).toBe('owner/repo-b');
   });
 });
 

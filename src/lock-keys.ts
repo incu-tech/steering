@@ -93,13 +93,16 @@ export function upsertByFormat<E extends FormatScoped>(
 }
 
 /**
- * Remove entries for `name`: every (format[, source]) slot when `format` is
- * omitted, only `format`'s slot(s) when given, or exactly one `(format,
- * source)` slot when both are given (meaningful only for a single-file
- * format — `source` is ignored for any other format, matching
- * `upsertByFormat`). Remaining entries are re-normalized (a lone survivor goes
- * back to a bare key). Returns the removed entries so the caller can delete
- * their on-disk files.
+ * Remove entries for `name`: every slot when `format` is omitted, only
+ * `format`'s slot(s) when given, and — when `source` is also given — only
+ * the entry whose *actual* source matches, regardless of format. `source` is
+ * never vacuously satisfied: an entry from an unrelated source is left alone
+ * even if its format doesn't otherwise need `source` to disambiguate (fixes
+ * an over-deletion bug where `--source X` on a bare `name` — no `--agent` —
+ * removed every other format's entry for that name too, no matter what
+ * source they actually came from). Remaining entries are re-normalized (a
+ * lone survivor goes back to a bare key). Returns the removed entries so the
+ * caller can delete their on-disk files.
  */
 export function removeByName<E extends FormatScoped>(
   steering: Record<string, E>,
@@ -115,8 +118,7 @@ export function removeByName<E extends FormatScoped>(
     const entry = steering[k]!;
     const entryFormat = formatOf(entry);
     const matchesFormat = format === undefined || entryFormat === format;
-    const matchesSource =
-      source === undefined || !needsSourceKey(entryFormat) || entry.source === source;
+    const matchesSource = source === undefined || entry.source === source;
     if (matchesFormat && matchesSource) removed.push(entry);
     else remaining.set(groupKeyOf(entry), entry);
     delete steering[k];
