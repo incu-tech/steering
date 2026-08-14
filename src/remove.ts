@@ -11,9 +11,10 @@ interface RemoveOptions {
   /** Restrict removal to a single agent format (otherwise all formats). */
   agent?: AgentFormat;
   /**
-   * Restrict removal to one specific source (meaningful only for a
-   * single-file format like agents-md, where several sources can share one
-   * name — e.g. `--source owner/repo-a`). Ignored for any other format.
+   * Restrict removal to entries whose source matches exactly (most useful
+   * for a single-file format like agents-md, where several sources can share
+   * one name — e.g. `--source owner/repo-a` — but it narrows any format's
+   * entries by their actual source, not just single-file ones).
    */
   source?: string;
 }
@@ -32,13 +33,17 @@ export function parseRemoveOptions(args: string[]): { names: string[]; options: 
       }
       options.agent = v as AgentFormat;
     } else if (arg === '--source') {
-      options.source = args[++i];
+      const v = args[++i];
+      if (!v || v.startsWith('-')) {
+        fail(`Missing value for --source. Usage: --source <source>`);
+      }
+      options.source = v;
     } else if (!arg.startsWith('-')) names.push(arg);
   }
   return { names, options };
 }
 
-interface InstalledEntry {
+export interface InstalledEntry {
   name: string;
   source: string;
   targetFormat?: AgentFormat;
@@ -60,25 +65,29 @@ async function installedEntries(global: boolean, cwd: string): Promise<Installed
 const SOURCE_SEP = String.fromCodePoint(0);
 
 /**
- * Build the interactive picker's choices: a name installed from exactly one
- * source is one plain choice (today's behavior, unchanged); a name shared by
- * several sources (single-file format) becomes one choice PER source, so the
- * user removes a specific one instead of all of them at once by accident.
+ * Build the interactive picker's choices: a name backed by exactly one
+ * DISTINCT source is one plain choice (today's behavior, unchanged) — even
+ * when that source installed to several formats (e.g. `kiro` + `cursor`),
+ * which is one logical install, not several. Only a name backed by several
+ * DIFFERENT sources (single-file format) becomes one choice per source, so
+ * the user removes a specific one instead of all of them at once by
+ * accident. Distinct sources are sorted for a deterministic picker order.
  */
-function pickerChoices(entries: InstalledEntry[]): { value: string; label: string }[] {
-  const bySource = new Map<string, InstalledEntry[]>();
+export function pickerChoices(entries: InstalledEntry[]): { value: string; label: string }[] {
+  const byName = new Map<string, InstalledEntry[]>();
   for (const e of entries) {
-    const arr = bySource.get(e.name) ?? [];
+    const arr = byName.get(e.name) ?? [];
     arr.push(e);
-    bySource.set(e.name, arr);
+    byName.set(e.name, arr);
   }
   const choices: { value: string; label: string }[] = [];
-  for (const [name, group] of [...bySource].sort(([a], [b]) => a.localeCompare(b))) {
-    if (group.length === 1) {
+  for (const [name, group] of [...byName].sort(([a], [b]) => a.localeCompare(b))) {
+    const sources = [...new Set(group.map((e) => e.source))].sort((a, b) => a.localeCompare(b));
+    if (sources.length === 1) {
       choices.push({ value: name, label: name });
     } else {
-      for (const e of group) {
-        choices.push({ value: `${name}${SOURCE_SEP}${e.source}`, label: `${name} <- ${e.source}` });
+      for (const source of sources) {
+        choices.push({ value: `${name}${SOURCE_SEP}${source}`, label: `${name} <- ${source}` });
       }
     }
   }
