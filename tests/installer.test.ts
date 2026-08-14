@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile } from 'fs/promises';
+import { mkdtemp, rm, mkdir, readFile, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -9,6 +9,7 @@ import {
   writeSteeringFile,
   removeSteeringFile,
   writeSourceRuleFile,
+  writeMergedFile,
   removeSourceRuleFile,
   isInstalled,
   listInstalledNames,
@@ -122,5 +123,84 @@ describe('writeSourceRuleFile / removeSourceRuleFile (single-file formats)', () 
     expect(await isInstalled('security', false, dir, 'kiro')).toBe(true);
     expect(await removeSourceRuleFile('security', 'owner/a', false, dir, 'kiro')).toBe(true);
     expect(await isInstalled('security', false, dir, 'kiro')).toBe(false);
+  });
+
+  it('flags legacyContentDetected the first time a source merges into a pre-existing marker-less file, never again after', async () => {
+    const target = getInstalledPath('agents', false, dir, 'agents-md');
+    await mkdir(dir, { recursive: true });
+    await writeFile(target, '# Hand-written notes, no steering markers\n', 'utf-8');
+
+    const first = await writeSourceRuleFile(
+      'agents-md',
+      'agents',
+      '# Rule A',
+      'owner/a',
+      false,
+      dir
+    );
+    expect(first.legacyContentDetected).toBe(true);
+
+    const second = await writeSourceRuleFile(
+      'agents-md',
+      'agents',
+      '# Rule A v2',
+      'owner/a',
+      false,
+      dir
+    );
+    expect(second.legacyContentDetected).toBe(false); // markers exist now — no longer "legacy"
+  });
+
+  it('does not flag legacyContentDetected for a brand-new file or one that already has markers', async () => {
+    const fresh = await writeSourceRuleFile(
+      'agents-md',
+      'agents',
+      '# Rule A',
+      'owner/a',
+      false,
+      dir
+    );
+    expect(fresh.legacyContentDetected).toBe(false);
+
+    const secondSource = await writeSourceRuleFile(
+      'agents-md',
+      'agents',
+      '# Rule B',
+      'owner/b',
+      false,
+      dir
+    );
+    expect(secondSource.legacyContentDetected).toBe(false);
+  });
+
+  it('removeSourceRuleFile returns false (and does not rewrite the file) when the source has no block yet', async () => {
+    const target = getInstalledPath('agents', false, dir, 'agents-md');
+    await mkdir(dir, { recursive: true });
+    const legacyContent = '# Legacy content, no markers for owner/a\n';
+    await writeFile(target, legacyContent, 'utf-8');
+
+    const removed = await removeSourceRuleFile('agents', 'owner/a', false, dir, 'agents-md');
+    expect(removed).toBe(false);
+    expect(await readFile(target, 'utf-8')).toBe(legacyContent); // untouched, not "successfully" rewritten
+  });
+
+  it('propagates a non-ENOENT read error instead of treating it as an empty file', async () => {
+    // A directory in place of the expected file triggers EISDIR on read — a real,
+    // non-ENOENT error a caller must not silently swallow as "nothing here yet".
+    const target = getInstalledPath('agents', false, dir, 'agents-md');
+    await mkdir(target, { recursive: true });
+
+    await expect(
+      writeSourceRuleFile('agents-md', 'agents', '# Rule A', 'owner/a', false, dir)
+    ).rejects.toThrow();
+  });
+
+  it('writeMergedFile (the primitive `convert` also uses) merges at an arbitrary explicit path', async () => {
+    const target = join(dir, 'custom', 'AGENTS.md');
+    await writeMergedFile(target, '# Rule A', 'owner/a');
+    await writeMergedFile(target, '# Rule B', 'owner/b');
+    const content = await readFile(target, 'utf-8');
+    expect(content).toContain('# Rule A');
+    expect(content).toContain('# Rule B');
   });
 });
