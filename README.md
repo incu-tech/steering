@@ -81,6 +81,7 @@ npx steering.sh init my-standards   # scaffold a new steering package
 | `--workspace` | Target workspace installs (default for `list`) |
 | `--all` | `list`: show both scopes (`check` / `update` span both by default) |
 | `--agent <fmt>` | `remove`: restrict to one agent (otherwise removes from all) |
+| `--source <src>` | `remove`: restrict to one exact source (for a name shared by several) |
 | `-y, --yes` | Skip confirmation prompts (`remove` / `update`) |
 
 ### `convert` options
