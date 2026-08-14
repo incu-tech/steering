@@ -95,9 +95,14 @@ export async function runRemove(names: string[], options: RemoveOptions): Promis
       const format = entry.targetFormat ?? 'kiro';
       const deleted = await removeSourceRuleFile(name, entry.source, global, cwd, format);
       if (!deleted) {
+        // Covers two cases: the file was already missing, or it exists but had
+        // no matching content to strip (e.g. a legacy pre-marker install) —
+        // either way, nothing was actually removed from disk, so this must
+        // not also report success below.
         warn(
-          `Lock entry removed but file was missing: ${getInstalledPath(name, global, cwd, format)}`
+          `Lock entry removed but no installed content was found: ${getInstalledPath(name, global, cwd, format)}`
         );
+        continue;
       }
       success(`Removed ${name} ${c.dim(`[${format}]`)}`);
       removed++;
