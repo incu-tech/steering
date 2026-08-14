@@ -416,7 +416,7 @@ export async function runAdd(source: string | undefined, options: AddOptions): P
         }
 
         if (single) {
-          await writeSourceRuleFile(
+          const { legacyContentDetected } = await writeSourceRuleFile(
             targetFormat,
             doc.name,
             doc.content,
@@ -424,6 +424,12 @@ export async function runAdd(source: string | undefined, options: AddOptions): P
             global,
             cwd
           );
+          if (legacyContentDetected) {
+            warn(
+              `${targetPath} already had content but no steering markers — preserving it as-is. ` +
+                'If this was an older steering install for this same source, remove the duplicate manually.'
+            );
+          }
         } else {
           await writeRuleFile(targetFormat, doc.name, doc.content, global, cwd);
         }
