@@ -7,6 +7,7 @@ import { getFormatDir, getOutputBasename } from './convert/output-paths.ts';
 import { parseRules, ruleNameFromPath, FormatDetectionError } from './convert/parse/index.ts';
 import { detectFormat } from './convert/detect.ts';
 import { convertRuleToFormat, renderRules, isDirectory, listRuleFiles } from './convert/convert.ts';
+import { writeMergedFile } from './installer.ts';
 import { c, fail, info, isInteractive, warn } from './ui.ts';
 
 export interface ConvertCliOptions {
@@ -187,12 +188,32 @@ export async function runConvert(args: string[]): Promise<void> {
         // Never clobber the source file itself (identity / --all-agents).
         if (resolve(doc.outPath) === resolve(file)) continue;
 
-        if (!options.dryRun && (await exists(doc.outPath))) {
+        // A single-file format (AGENTS.md) MERGES this source's own block rather
+        // than overwriting the shared file — `add`/`update`/`remove` already work
+        // this way (src/installer.ts); `convert` was the one path left writing
+        // straight over the same file with a plain writeFile, silently destroying
+        // every other source's block the moment anyone ran `convert --to agents-md`.
+        // Nothing destructive is left to confirm for it, same reasoning as `add`.
+        if (!spec.single && !options.dryRun && (await exists(doc.outPath))) {
           if (!(await confirmOverwrite(doc.outPath, options))) continue;
         }
         if (!options.dryRun) {
-          await mkdir(dirname(doc.outPath), { recursive: true });
-          await writeFile(doc.outPath, doc.content, 'utf-8');
+          if (spec.single) {
+            const { legacyContentDetected } = await writeMergedFile(
+              doc.outPath,
+              doc.content,
+              resolve(file)
+            );
+            if (legacyContentDetected) {
+              warn(
+                `${doc.outPath} already had content but no steering markers — preserving it as-is. ` +
+                  'If this was an older conversion of this same source, remove the duplicate manually.'
+              );
+            }
+          } else {
+            await mkdir(dirname(doc.outPath), { recursive: true });
+            await writeFile(doc.outPath, doc.content, 'utf-8');
+          }
         }
 
         const mark = doc.warnings.length ? c.yellow('⚠') : c.green('✓');
