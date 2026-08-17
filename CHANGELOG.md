@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Versions apply to all three published packages (`@incu/steering`, `steering-cli`,
 `steering.sh`), which are released together.
 
+## [0.6.0] — 2026-08-17
+
+### Fixed
+
+- **`AGENTS.md` no longer loses a source's rules when another source is installed,
+  updated, removed, or converted.** `AGENTS.md` is the one format that aggregates every
+  installed source into a single physical file, but every write path replaced that whole
+  file with just the current source's rules. Installing a second source silently destroyed
+  the first one's content — and any notes you had written in the file by hand; `remove`
+  deleted the shared file outright no matter how many sources still depended on it; and
+  `steering convert --to agents-md` wrote straight over everything the other commands had
+  put there. Each source now owns a marker-delimited block, so writing or removing one
+  never disturbs another's content or your own.
+- **`steering check` no longer reports an `agents-md` source as permanently out of date.**
+  For a lock entry without a stored hash, the comparison diffed the source's freshly
+  rendered rules against the entire shared file — including every other source's rules —
+  so it could never match. It now compares only the source's own block.
+- **`steering remove` no longer reports success when it removed nothing.** Removing a
+  source whose rules were not actually present in `AGENTS.md` dropped the lock entry and
+  printed "Removed" while leaving the content in the file with no way to ever remove it
+  through the CLI. It now says nothing was found and leaves the file alone.
+- **`AGENTS.md` files with CRLF line endings are handled correctly.** Marker matching
+  compared whole lines, so on a CRLF file no marker ever matched: every `add`/`update`
+  appended another duplicate copy of the rules, and `remove` could not strip them.
+- **A transient read error no longer overwrites `AGENTS.md`.** Any failure reading the
+  existing file was treated as "the file is empty", so an unlucky `EMFILE`/`EBUSY` replaced
+  the whole file with only the current source's rules. Only a genuinely missing file is
+  treated as empty now; anything else surfaces as an error.
+
+### Changed
+
+- **`AGENTS.md` now contains `<!-- steering:begin … -->` / `<!-- steering:end … -->`
+  markers** around each source's rules. They are HTML comments, so agents reading the file
+  ignore them. Content you write yourself outside the blocks is preserved, and keeps its
+  position when a block is rewritten.
+- **`steering add` no longer prompts "already exists, overwrite?" for `AGENTS.md`.** The
+  write is now a merge of one source's own block, so there is nothing destructive left to
+  confirm. Multi-file formats still prompt as before.
+- **`steering convert --to agents-md` merges instead of overwriting**, and aggregates every
+  rule file in a directory source into one block — matching what `steering add` produces,
+  so converting a source you already installed is now a no-op instead of a second copy.
+
+### Upgrading
+
+If you already have an `AGENTS.md` installed by an earlier version, its content has no
+markers yet. On the first `add`/`update` after upgrading, that content is preserved as-is
+and the source's rules are also written into a new marked block — leaving two copies. The
+CLI prints a warning when it detects this; delete the older unmarked copy by hand once, and
+subsequent runs are clean. Nothing is deleted automatically, because content without markers
+cannot be safely attributed to a source rather than to you.
+
 ## [0.5.0] — 2026-07-22
 
 ### Added
@@ -72,6 +123,7 @@ Versions apply to all three published packages (`@incu/steering`, `steering-cli`
 Releases up to and including `v0.2.3` predate this changelog; see the git history and the
 `vX.Y.Z` tags for details.
 
+[0.6.0]: https://github.com/incu-tech/steering/releases/tag/v0.6.0
 [0.5.0]: https://github.com/incu-tech/steering/releases/tag/v0.5.0
 [0.4.0]: https://github.com/incu-tech/steering/releases/tag/v0.4.0
 [0.3.0]: https://github.com/incu-tech/steering/releases/tag/v0.3.0
