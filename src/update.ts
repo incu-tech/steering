@@ -12,7 +12,9 @@ import {
 } from './blob.ts';
 import { cloneRepo, cleanupClone, isGitUrl, type ClonedRepo } from './git.ts';
 import { parseOwnerRepo } from './source-parser.ts';
-import { getInstalledPath, writeRuleFile } from './installer.ts';
+import { getInstalledPath, writeRuleFile, writeSourceRuleFile } from './installer.ts';
+import { getFormatSpec } from './convert/formats.ts';
+import { getBlockContent, hasAnyMarkerBlock, isSingleFileFormat } from './convert/merge.ts';
 import { getAllGlobalLocked, addToGlobalLock } from './steering-lock.ts';
 import { readLocalLock, addToLocalLock } from './local-lock.ts';
 import { parseManifest } from './manifest.ts';
@@ -146,6 +148,35 @@ async function readInstalled(item: CheckItem, cwd: string): Promise<string | nul
   } catch {
     return null;
   }
+}
+
+/**
+ * What to diff `newContent` (this item's own freshly-rendered, bare content)
+ * against. For a multi-file format `raw` already IS just this item's file, so
+ * it's used as-is. For a single-file format (AGENTS.md) `raw` is the WHOLE
+ * shared file — every source's block plus any hand-written content — which a
+ * single source's bare render can never equal; comparing against that made
+ * `check`/`update` report "update available" forever. Comparing against just
+ * `item.source`'s own block fixes that. A file with no blocks at all yet (a
+ * legacy install, from before this marker scheme existed) is compared whole,
+ * so an unmigrated pre-fix install still gets a real diff instead of one that
+ * can never converge; a file that HAS other blocks but not this source's
+ * (nothing of this item's has ever been written here) has nothing to compare
+ * — `undefined` reads as "changed" below, which correctly triggers a (re)write.
+ */
+function installedContentFor(item: CheckItem, raw: string): string | undefined {
+  if (!isSingleFileFormat(item.targetFormat)) return raw;
+  const block = getBlockContent(raw, item.source);
+  if (block !== undefined) return block;
+  return hasAnyMarkerBlock(raw) ? undefined : raw.trim();
+}
+
+/** `getBlockContent`/the legacy-whole-file fallback above are both already trimmed for a
+ * single-file format; apply the same trim to `newContent` so the comparison isn't thrown off by a
+ * trailing newline `renderRules` always adds. A multi-file format's identity (kiro→kiro) path
+ * compares raw bytes exactly, unchanged — trimming there would ignore a real difference. */
+function contentToCompare(item: CheckItem, content: string): string {
+  return isSingleFileFormat(item.targetFormat) ? content.trim() : content;
 }
 
 /** Fetch the raw source content for an item. `cloneDir` is required for git items. */
@@ -301,7 +332,9 @@ async function checkItems(items: CheckItem[], cwd: string): Promise<CheckResult[
         results.push({ ...item, status: 'error' });
         continue;
       }
-      const changed = newContent !== installed;
+      const installedContent = installedContentFor(item, installed);
+      const changed =
+        installedContent === undefined || contentToCompare(item, newContent) !== installedContent;
       results.push({
         ...item,
         ref: tree?.branch ?? item.ref,
@@ -427,7 +460,24 @@ export async function runUpdate(args: string[]): Promise<void> {
       continue;
     }
 
-    await writeRuleFile(r.targetFormat, r.name, content, r.global, cwd);
+    if (getFormatSpec(r.targetFormat).single) {
+      const { path, legacyContentDetected } = await writeSourceRuleFile(
+        r.targetFormat,
+        r.name,
+        content,
+        r.source,
+        r.global,
+        cwd
+      );
+      if (legacyContentDetected) {
+        warn(
+          `${path} already had content but no steering markers — preserving it as-is. ` +
+            'If this was an older steering install for this same source, remove the duplicate manually.'
+        );
+      }
+    } else {
+      await writeRuleFile(r.targetFormat, r.name, content, r.global, cwd);
+    }
 
     const newHash = r.remoteHash ?? r.storedHash ?? '';
     const newVersion = r.newVersion ?? r.storedVersion;

@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import { getInstalledPath, removeSteeringFile } from './installer.ts';
+import { getInstalledPath, removeSteeringFile, removeSourceRuleFile } from './installer.ts';
 import { getAllGlobalLocked, removeFromGlobalLock } from './steering-lock.ts';
 import { readLocalLock, removeFromLocalLock } from './local-lock.ts';
 import { c, fail, info, isInteractive, success, warn } from './ui.ts';
@@ -93,11 +93,16 @@ export async function runRemove(names: string[], options: RemoveOptions): Promis
 
     for (const entry of entries) {
       const format = entry.targetFormat ?? 'kiro';
-      const deleted = await removeSteeringFile(name, global, cwd, format);
+      const deleted = await removeSourceRuleFile(name, entry.source, global, cwd, format);
       if (!deleted) {
+        // Covers two cases: the file was already missing, or it exists but had
+        // no matching content to strip (e.g. a legacy pre-marker install) —
+        // either way, nothing was actually removed from disk, so this must
+        // not also report success below.
         warn(
-          `Lock entry removed but file was missing: ${getInstalledPath(name, global, cwd, format)}`
+          `Lock entry removed but no installed content was found: ${getInstalledPath(name, global, cwd, format)}`
         );
+        continue;
       }
       success(`Removed ${name} ${c.dim(`[${format}]`)}`);
       removed++;
