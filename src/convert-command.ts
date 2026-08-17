@@ -1,10 +1,15 @@
 import { mkdir, writeFile, readFile } from 'fs/promises';
 import { dirname, join, resolve, basename } from 'path';
 import * as p from '@clack/prompts';
-import { AGENT_FORMATS, type AgentFormat, type ConversionWarning } from './convert/types.ts';
+import {
+  AGENT_FORMATS,
+  type AgentFormat,
+  type CanonicalRule,
+  type ConversionWarning,
+} from './convert/types.ts';
 import { getFormatSpec, resolveFormatName, FORMAT_ALIASES } from './convert/formats.ts';
 import { getFormatDir, getOutputBasename } from './convert/output-paths.ts';
-import { parseRules, ruleNameFromPath, FormatDetectionError } from './convert/parse/index.ts';
+import { parseRules, FormatDetectionError } from './convert/parse/index.ts';
 import { detectFormat } from './convert/detect.ts';
 import { convertRuleToFormat, renderRules, isDirectory, listRuleFiles } from './convert/convert.ts';
 import { writeMergedFile } from './installer.ts';
@@ -76,6 +81,34 @@ export function parseConvertOptions(args: string[]): {
   return { source, options };
 }
 
+/**
+ * The marker-block key for everything this run writes into a single-file target.
+ *
+ * It must be the source the USER named, not each expanded input file, so that it
+ * matches the id `add`/`update`/`remove` use for the same source: those key a
+ * local source's block by its resolved path (`resolveLocal` in src/resolve.ts
+ * returns `sourceId: root`, itself `resolve(input)` from `parseSource`). Keying
+ * by the individual file instead produced a SECOND block with identical content
+ * for a source already installed via `add` — duplicated rules the agent reads
+ * twice, in a block no lock entry tracks and therefore no `steering remove` can
+ * ever clean up.
+ *
+ * A glob is keyed by the directory it scans, which is the directory whose rule
+ * files `resolveSourceFiles` actually expands it to.
+ */
+function blockSourceId(source: string): string {
+  return resolve(source.includes('*') ? dirname(source) || '.' : source);
+}
+
+/**
+ * Document name for a single-file format's one aggregated doc. The format has a
+ * fixed filename, so this never reaches the output path — it only labels the
+ * rendered doc, matching what `add` passes (`planInstall` in src/add.ts).
+ */
+function singleFileStem(spec: { fixedName?: string }): string {
+  return (spec.fixedName ?? '').replace(/\.md$/i, '').toLowerCase();
+}
+
 /** Expand a source argument into concrete file paths. */
 async function resolveSourceFiles(source: string): Promise<string[]> {
   if (await isDirectory(source)) return listRuleFiles(source);
@@ -92,6 +125,26 @@ interface PlannedDoc {
   content: string;
   inclusionLabel: string;
   warnings: ConversionWarning[];
+}
+
+/**
+ * Rules bound for one single-file target (AGENTS.md), accumulated across EVERY
+ * source file in this run before a single write.
+ *
+ * Two separate constraints force the aggregation. A single-file format has a
+ * fixed output name, so every input file resolves to the same `AGENTS.md`; and
+ * the merge keys a block by the source the user named, not by each input file
+ * (see `blockSourceId`). Writing per file would therefore have each file
+ * replace the previous one's block — only the last would survive. Aggregating
+ * first is also exactly what `add` does (`planInstall` in src/add.ts renders
+ * all of a source's rules into one document), which is what makes a `convert`
+ * of an already-`add`ed source a genuine no-op instead of a second copy.
+ */
+interface SingleFileTarget {
+  outPath: string;
+  rules: CanonicalRule[];
+  /** Source files contributing rules, for the summary line. */
+  files: string[];
 }
 
 async function confirmOverwrite(path: string, options: ConvertCliOptions): Promise<boolean> {
@@ -140,6 +193,8 @@ export async function runConvert(args: string[]): Promise<void> {
 
   let totalConverted = 0;
   const allWarnings: ConversionWarning[] = [];
+  const sourceId = blockSourceId(source!);
+  const singleTargets = new Map<AgentFormat, SingleFileTarget>();
 
   for (const file of files) {
     let srcFormat: AgentFormat;
@@ -163,57 +218,44 @@ export async function runConvert(args: string[]): Promise<void> {
       const outDir = options.allAgents
         ? getFormatDir(target, false, cwd)
         : (options.out ?? getFormatDir(target, false, cwd));
-      const sourceName = ruleNameFromPath(file, srcFormat);
       const spec = getFormatSpec(target);
 
-      const docs: PlannedDoc[] = spec.single
-        ? renderRules(rules, target, sourceName).map((d) => ({
-            outPath: join(outDir, getOutputBasename(target, d.name)),
-            content: d.content,
-            inclusionLabel: 'always',
-            warnings: d.warnings,
-          }))
-        : rules.map((rule) => {
-            const { content, warnings } = convertRuleToFormat(rule, target);
-            return {
-              outPath: join(outDir, getOutputBasename(target, rule.name)),
-              content,
-              inclusionLabel: rule.inclusion,
-              warnings,
-            };
-          });
+      // A single-file target is written once, after every file has been parsed —
+      // see `SingleFileTarget`. Collect this file's rules and move on.
+      if (spec.single) {
+        const outPath = join(outDir, getOutputBasename(target, singleFileStem(spec)));
+        // Never clobber the source file itself (identity / --all-agents).
+        if (resolve(outPath) === resolve(file)) continue;
+        const acc = singleTargets.get(target) ?? { outPath, rules: [], files: [] };
+        acc.rules.push(...rules);
+        acc.files.push(file);
+        singleTargets.set(target, acc);
+        // No per-file line here: the single write is reported once on flush
+        // below, which would otherwise leave a header with nothing under it.
+        continue;
+      }
+
+      const docs: PlannedDoc[] = rules.map((rule) => {
+        const { content, warnings } = convertRuleToFormat(rule, target);
+        return {
+          outPath: join(outDir, getOutputBasename(target, rule.name)),
+          content,
+          inclusionLabel: rule.inclusion,
+          warnings,
+        };
+      });
 
       info(`${c.bold(basename(file))} ${c.dim(`(${srcFormat})`)} → ${spec.displayName}`);
       for (const doc of docs) {
         // Never clobber the source file itself (identity / --all-agents).
         if (resolve(doc.outPath) === resolve(file)) continue;
 
-        // A single-file format (AGENTS.md) MERGES this source's own block rather
-        // than overwriting the shared file — `add`/`update`/`remove` already work
-        // this way (src/installer.ts); `convert` was the one path left writing
-        // straight over the same file with a plain writeFile, silently destroying
-        // every other source's block the moment anyone ran `convert --to agents-md`.
-        // Nothing destructive is left to confirm for it, same reasoning as `add`.
-        if (!spec.single && !options.dryRun && (await exists(doc.outPath))) {
+        if (!options.dryRun && (await exists(doc.outPath))) {
           if (!(await confirmOverwrite(doc.outPath, options))) continue;
         }
         if (!options.dryRun) {
-          if (spec.single) {
-            const { legacyContentDetected } = await writeMergedFile(
-              doc.outPath,
-              doc.content,
-              resolve(file)
-            );
-            if (legacyContentDetected) {
-              warn(
-                `${doc.outPath} already had content but no steering markers — preserving it as-is. ` +
-                  'If this was an older conversion of this same source, remove the duplicate manually.'
-              );
-            }
-          } else {
-            await mkdir(dirname(doc.outPath), { recursive: true });
-            await writeFile(doc.outPath, doc.content, 'utf-8');
-          }
+          await mkdir(dirname(doc.outPath), { recursive: true });
+          await writeFile(doc.outPath, doc.content, 'utf-8');
         }
 
         const mark = doc.warnings.length ? c.yellow('⚠') : c.green('✓');
@@ -225,6 +267,37 @@ export async function runConvert(args: string[]): Promise<void> {
         totalConverted++;
       }
     }
+  }
+
+  // Flush the aggregated single-file targets: one merged write per format, under
+  // the block id of the source the user named. No "already exists, overwrite?"
+  // prompt — the merge replaces only this source's own block, so unlike the old
+  // raw `writeFile` (which destroyed every other source's block plus any
+  // hand-written content) there is nothing destructive left to confirm.
+  for (const [target, acc] of singleTargets) {
+    const spec = getFormatSpec(target);
+    const [doc] = renderRules(acc.rules, target, singleFileStem(spec));
+    if (!doc) continue;
+
+    if (!options.dryRun) {
+      const { legacyContentDetected } = await writeMergedFile(acc.outPath, doc.content, sourceId);
+      if (legacyContentDetected) {
+        warn(
+          `${acc.outPath} already had content but no steering markers — preserving it as-is. ` +
+            'If this was an older conversion of this same source, remove the duplicate manually.'
+        );
+      }
+    }
+
+    const mark = doc.warnings.length ? c.yellow('⚠') : c.green('✓');
+    const detail = doc.warnings.length
+      ? c.dim(`  [${doc.warnings.map((w) => w.appliedFallback || w.type).join(', ')}]`)
+      : '';
+    const from = acc.files.length === 1 ? basename(acc.files[0]!) : `${acc.files.length} files`;
+    info(`${c.bold(spec.displayName)} ${c.dim(`(${from})`)}`);
+    info(`  ${c.dim('always'.padEnd(9))} ${acc.outPath} ${mark}${detail}`);
+    allWarnings.push(...doc.warnings);
+    totalConverted++;
   }
 
   info('');
