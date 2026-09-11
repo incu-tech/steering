@@ -84,16 +84,20 @@ export async function addToLocalLock(entry: LocalLockEntry, cwd?: string): Promi
 }
 
 /**
- * Remove a name from the local lock — every format, or only `format` if given.
- * Returns the removed entries so the caller can delete their on-disk files.
+ * Remove a name from the local lock — every format, or only `format` if given;
+ * `source` further narrows to one specific source (meaningful only for a
+ * single-file format, where several sources can share one name — see
+ * `removeByName`). Returns the removed entries so the caller can delete their
+ * on-disk files.
  */
 export async function removeFromLocalLock(
   name: string,
   cwd?: string,
-  format?: AgentFormat
+  format?: AgentFormat,
+  source?: string
 ): Promise<LocalLockEntry[]> {
   const lock = await readLocalLock(cwd);
-  const removed = removeByName(lock.steering, name, format);
+  const removed = removeByName(lock.steering, name, format, source);
   if (removed.length) await writeLocalLock(lock, cwd);
   return removed;
 }

@@ -92,36 +92,37 @@ describe('runAdd/runRemove — AGENTS.md does not clobber across sources', () =>
     const a = await makeLocalSource(sources, 'rule-a', '# Rule A\n');
     await runAdd(a, opts());
     // Single-file lock entries are keyed by the fixed doc name ("agents"), not the
-    // source's own rule name — see the note below on the multi-source lock gap.
+    // source's own rule name.
     await runRemove(['agents'], { global: false, yes: true, agent: 'agents-md' });
 
     await expect(readFile(join(dir, 'AGENTS.md'), 'utf-8')).rejects.toThrow();
   });
 
-  // Known, separate limitation (tracked as a follow-up, not fixed by this change):
-  // the local lock keys single-file entries by (name, targetFormat) only — see
-  // `lock-keys.ts`. That's correct for a MULTI-file format, where `name` is the
-  // rule's own identity and re-adding it from a new source is meant to replace
-  // the old lock entry. For a SINGLE-file format every source shares the same
-  // fixed `name` ("agents"), so a second `add` overwrites the first source's
-  // lock entry outright — `remove`/`update` can then only see whichever source
-  // was installed LAST. The on-disk merge fixed here means that entry's block is
-  // still the only one it ever destroys — a real, self-contained improvement
-  // over unconditionally deleting the whole file — but an earlier source's block
-  // is left orphaned in the file with no lock entry pointing back to it. Fixing
-  // that needs `lock-keys.ts` to key single-file entries by (name, targetFormat,
-  // source) instead, which is a larger, separate change.
-  it('removing the (only lock-tracked) most-recently-added source strips just its own block, leaving an earlier orphaned block physically intact', async () => {
+  // The lock-key fix (src/lock-keys.ts, issue #8) means BOTH sources are now
+  // properly tracked as separate lock entries, not just one overwriting the
+  // other — these exercise `remove` against that fully-fixed lock, through the
+  // real CLI path.
+  it('removing without --source drops every source sharing the name (bulk, backward compatible)', async () => {
     const a = await makeLocalSource(sources, 'rule-a', '# Rule A\n');
     const b = await makeLocalSource(sources, 'rule-b', '# Rule B\n');
-
     await runAdd(a, opts());
-    await runAdd(b, opts()); // the lock now tracks only source B ("rule-b")
+    await runAdd(b, opts());
 
     await runRemove(['agents'], { global: false, yes: true, agent: 'agents-md' });
 
+    await expect(readFile(join(dir, 'AGENTS.md'), 'utf-8')).rejects.toThrow();
+  });
+
+  it('removing with --source <path> targets only that one source, leaving the other', async () => {
+    const a = await makeLocalSource(sources, 'rule-a', '# Rule A\n');
+    const b = await makeLocalSource(sources, 'rule-b', '# Rule B\n');
+    await runAdd(a, opts());
+    await runAdd(b, opts());
+
+    await runRemove(['agents'], { global: false, yes: true, agent: 'agents-md', source: a });
+
     const content = await readFile(join(dir, 'AGENTS.md'), 'utf-8');
-    expect(content).not.toContain('# Rule B'); // the lock-tracked source WAS removed correctly
-    expect(content).toContain('# Rule A'); // pre-existing content was not destroyed either
+    expect(content).not.toContain('# Rule A');
+    expect(content).toContain('# Rule B');
   });
 });
